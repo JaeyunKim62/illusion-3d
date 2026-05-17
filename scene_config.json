@@ -1,0 +1,14 @@
+{
+  "projectTitle": "What We See Is Not What Exists: A Perceptual Twin Room",
+  "render": { "width": 1920, "height": 1080, "durationSec": 10, "fps": 60 },
+  "referenceCamera": { "position": [0, 0, 8], "target": [0, 0, 0], "fov": 50, "aspect": 1.7777777778, "near": 0.1, "far": 100 },
+  "anamorphicText": { "text": "WHAT WE SEE", "canvasWidth": 1024, "canvasHeight": 256, "sampleStride": 6, "depthMin": 3.0, "depthMax": 6.2, "piecePixelSize": 9, "seed": 479 },
+  "room": {
+    "layout": {
+      "outerTL": [-0.85, 0.65], "outerTR": [0.85, 0.65], "outerBR": [0.85, -0.65], "outerBL": [-0.85, -0.65],
+      "innerTL": [-0.35, 0.25], "innerTR": [0.35, 0.25], "innerBR": [0.35, -0.25], "innerBL": [-0.35, -0.25]
+    },
+    "depths": { "outerTL": 3.0, "outerTR": 5.2, "outerBR": 5.8, "outerBL": 3.4, "innerTL": 7.2, "innerTR": 11.0, "innerBR": 10.6, "innerBL": 7.8 }
+  },
+  "objects": { "sphereRadius": 0.35, "sphereA": { "ndc": [-0.45, -0.25], "depth": 4.0 }, "sphereB": { "ndc": [0.45, -0.25], "depth": 8.0 } }
+}
