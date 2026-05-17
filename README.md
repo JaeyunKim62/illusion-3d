@@ -26,6 +26,8 @@ For each p=(x,y,z) in P:
 
 No second point cloud, no duplicate text mesh, and no view-dependent opacity gate is used to fake the two readings.
 
+The visible `Invariant QA` score card reports the runtime check for the physical cloud only: exactly one `THREE.Points` object, backed by the one shared `THREE.BufferGeometry`. Helper axes/grid lines can own separate line geometries for inspection, but they are not point sets and are excluded from the point-cloud invariant.
+
 ## Run and verify
 
 ```bash
@@ -36,6 +38,14 @@ npm run harness
 ```
 
 `npm run harness` currently runs TypeScript checking and a Vite production build. A Vite chunk-size warning can appear because Three.js is bundled; it is not a build failure.
+
+Browser console invariant/metrics export:
+
+```js
+window.__LENTICULAR_QA__
+```
+
+The object is deterministic for the generated shared cloud and recomputes when read from the console. It includes the RNG seed, mask dimensions, row count, point count, front/side coverage, rows used, projection labels, scene `THREE.Points` count, shared-geometry identity check, explicit `position`/`color` attribute counts and item sizes, and `pointCloudInvariantHolds` boolean. Expected high-level result: `scenePointsCount === 1`, `pointCloudUsesSharedGeometry === true`, `geometryAttributes.names` is `["color", "position"]`, and `pointCloudInvariantHolds === true`.
 
 For final submission sanity checks, run:
 

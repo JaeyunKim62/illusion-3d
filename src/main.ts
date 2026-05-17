@@ -7,6 +7,31 @@ type ViewMode = 'front' | 'right' | 'back' | 'left' | 'reveal' | 'orbit';
 type MaskSpec = { name: string; text: string; color: string };
 type MaskRows = { spec: MaskSpec; rows: number[][]; rowCount: number; width: number; height: number; activePixels: number };
 type CloudStats = { points: number; frontCoverage: number; sideCoverage: number; rowsUsed: number; rowCount: number };
+type LenticularQa = {
+  seed: number;
+  maskDimensions: Readonly<{ width: number; height: number; sampleStride: number }>;
+  rowCount: number;
+  pointCount: number;
+  coverage: Readonly<{ front: number; side: number }>;
+  rowsUsed: number;
+  projectionLabels: Readonly<{ front: string; right: string }>;
+  scenePointsCount: number;
+  pointCloudUsesSharedGeometry: boolean;
+  geometryAttributes: Readonly<{
+    names: readonly string[];
+    positionCount: number;
+    positionItemSize: number;
+    colorCount: number;
+    colorItemSize: number;
+  }>;
+  pointCloudInvariantHolds: boolean;
+};
+
+declare global {
+  interface Window {
+    __LENTICULAR_QA__: LenticularQa;
+  }
+}
 
 type GeneratedCloud = {
   positions: Float32Array;
@@ -60,6 +85,7 @@ app.innerHTML = `
       </div>
       <p class="hint" id="overlayHelp">Orthographic canonical views only: no opacity gating, no second point set, no hidden duplicate text. Rotate/reveal to inspect the single physical point cloud.</p>
       <p class="capture-status" id="captureStatus" role="status">Capture ready. Use Front/Right before PNG capture, or record a 10s rotation.</p>
+      <section class="score-card"><h2>Invariant QA</h2><p class="qa-metric" id="invariantQaMetric">checking physical point-set invariant…</p></section>
       <section class="score-card"><h2>수학적 정의</h2><ul><li>점 하나: <code>p=(x,y,z)</code></li><li>Front +Z projection: <code>πZ(p)=(x,y)</code> → WHAT WE SEE</li><li>Right +X projection: <code>πX(p)=(z,y)</code> → WHAT EXISTS</li><li>Back/Left는 같은 점의 좌우반전 projection</li></ul></section>
       <section class="score-card"><h2>확장 계획</h2><ul><li>4-view: 독립 4장은 제약이 강하므로 row/voxel matching + noise suppression로 근사</li><li>색 변화: view-dependent color 또는 per-point multi-channel encoding</li><li>빛 적용: 현재는 additive point shader, 다음 단계에서 shaded splat/instanced tiny spheres 비교</li></ul></section>
       <section class="score-card"><h2>우선 규정</h2><ul>${contestRules.map((r) => `<li><b>${r.title}</b> — ${r.implementationPolicy}</li>`).join('')}</ul></section>
@@ -242,6 +268,71 @@ axesGroup.add(
 );
 scene.add(axesGroup);
 
+function countScenePoints(root: THREE.Object3D) {
+  let count = 0;
+  root.traverse((object) => {
+    if (object instanceof THREE.Points) count += 1;
+  });
+  return count;
+}
+
+function deepFreeze<T extends Record<string, unknown>>(value: T): Readonly<T> {
+  Object.values(value).forEach((entry) => {
+    if (entry && typeof entry === 'object') Object.freeze(entry);
+  });
+  return Object.freeze(value);
+}
+
+function buildLenticularQa(): LenticularQa {
+  const scenePointsCount = countScenePoints(scene);
+  const pointCloudUsesSharedGeometry = pointCloud.geometry === geometry;
+  const attributeNames = Object.keys(geometry.attributes).sort();
+  const positionAttribute = geometry.getAttribute('position');
+  const colorAttribute = geometry.getAttribute('color');
+  const positionCount = positionAttribute?.count ?? 0;
+  const colorCount = colorAttribute?.count ?? 0;
+  const positionItemSize = positionAttribute?.itemSize ?? 0;
+  const colorItemSize = colorAttribute?.itemSize ?? 0;
+  const pointCloudInvariantHolds = scenePointsCount === 1
+    && pointCloudUsesSharedGeometry
+    && attributeNames.length === 2
+    && attributeNames.includes('position')
+    && attributeNames.includes('color')
+    && positionCount === cloud.stats.points
+    && colorCount === cloud.stats.points
+    && positionItemSize === 3
+    && colorItemSize === 3;
+
+  return deepFreeze({
+    seed: RNG_SEED,
+    maskDimensions: Object.freeze({ width: MASK_WIDTH, height: MASK_HEIGHT, sampleStride: SAMPLE_STRIDE }),
+    rowCount: ROW_COUNT,
+    pointCount: cloud.stats.points,
+    coverage: Object.freeze({ front: cloud.stats.frontCoverage, side: cloud.stats.sideCoverage }),
+    rowsUsed: cloud.stats.rowsUsed,
+    projectionLabels: Object.freeze({
+      front: 'Front +Z orthographic projection: (x,y) => WHAT WE SEE',
+      right: 'Right +X orthographic projection: (z,y) => WHAT EXISTS',
+    }),
+    scenePointsCount,
+    pointCloudUsesSharedGeometry,
+    geometryAttributes: Object.freeze({
+      names: Object.freeze(attributeNames),
+      positionCount,
+      positionItemSize,
+      colorCount,
+      colorItemSize,
+    }),
+    pointCloudInvariantHolds,
+  });
+}
+
+Object.defineProperty(window, '__LENTICULAR_QA__', {
+  configurable: false,
+  enumerable: true,
+  get: buildLenticularQa,
+});
+
 const aspect = 16 / 9;
 const camera = new THREE.OrthographicCamera(-2.25 * aspect, 2.25 * aspect, 2.25, -2.25, 0.01, 100);
 camera.position.set(0, 0, 6);
@@ -265,6 +356,7 @@ const viewBadge = document.querySelector('#viewBadge') as HTMLDivElement;
 const captureStatus = document.querySelector('#captureStatus') as HTMLParagraphElement;
 const recordBtn = document.querySelector('#recordBtn') as HTMLButtonElement;
 const errorMetric = document.querySelector('#errorMetric')!;
+const invariantQaMetric = document.querySelector('#invariantQaMetric')!;
 
 let viewMode: ViewMode = 'front';
 let playing = false;
@@ -349,6 +441,7 @@ function animate(now: number) {
 requestAnimationFrame(animate);
 
 errorMetric.textContent = `same points: ${cloud.stats.points.toLocaleString()} / rows: ${cloud.stats.rowsUsed}/${cloud.stats.rowCount} / front coverage: ${(cloud.stats.frontCoverage * 100).toFixed(1)}% / side coverage: ${(cloud.stats.sideCoverage * 100).toFixed(1)}%`;
+invariantQaMetric.textContent = `Physical cloud: ${window.__LENTICULAR_QA__.scenePointsCount} THREE.Points object using 1 shared BufferGeometry (${window.__LENTICULAR_QA__.geometryAttributes.names.join(' + ')} attributes, count=${window.__LENTICULAR_QA__.pointCount.toLocaleString()}). Helper axes/grid may have their own line geometries, but they are not point sets. Point-cloud invariant: ${window.__LENTICULAR_QA__.pointCloudInvariantHolds ? 'PASS' : 'FAIL'}.`;
 setView('front');
 
 (document.querySelector('#shotBtn') as HTMLButtonElement).onclick = () => {
