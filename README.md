@@ -45,7 +45,20 @@ Browser console invariant/metrics export:
 window.__LENTICULAR_QA__
 ```
 
-The object is deterministic for the generated shared cloud and recomputes when read from the console. It includes the RNG seed, mask dimensions, row count, point count, front/side coverage, rows used, projection labels, scene `THREE.Points` count, shared-geometry identity check, explicit `position`/`color` attribute counts and item sizes, and `pointCloudInvariantHolds` boolean. Expected high-level result: `scenePointsCount === 1`, `pointCloudUsesSharedGeometry === true`, `geometryAttributes.names` is `["color", "position"]`, and `pointCloudInvariantHolds === true`.
+The object is deterministic for the generated shared cloud and recomputes when read from the console. It includes the RNG seed, mask dimensions, row count, point count, front/side coverage, rows used, projection labels, scene `THREE.Points` count, shared-geometry identity check, explicit `position`/`color` attribute counts and item sizes, and `pointCloudInvariantHolds` boolean. It also exposes `rowBalance`, a deterministic density/legibility QA block computed from the same sampled mask rows before/while generating the one physical point set:
+
+```js
+window.__LENTICULAR_QA__.rowBalance
+// {
+//   activeRows: { front, side, matched },
+//   matchedRowRatio, // active-row overlap: matched / (frontOnly + sideOnly + matched)
+//   rowMismatches: { frontOnly, sideOnly, emptyBoth },
+//   generatedPointsPerMatchedRow: { min, median, max },
+//   activePixels: { front, side } // sampled active mask positions after SAMPLE_STRIDE
+// }
+```
+
+These row-balance/density numbers are QA metrics only: they do not add point clouds, hidden layers, text meshes, view-dependent opacity gates, or alternate geometry. They describe how many rows from the two masks can be matched into the single shared `THREE.BufferGeometry`, and how dense those matched rows are for legibility tuning. Expected high-level result: `scenePointsCount === 1`, `pointCloudUsesSharedGeometry === true`, `geometryAttributes.names` is `["color", "position"]`, and `pointCloudInvariantHolds === true`.
 
 For final submission sanity checks, run:
 
@@ -84,10 +97,11 @@ Browser-verified screenshots:
 - `artifacts/lenticular-shared/front-what-we-see.png`
 - `artifacts/lenticular-shared/right-what-exists.png`
 
-Current generated metric displayed in the viewer:
+Viewer metric format displayed at runtime:
 
 ```text
-same points: 8,321 / rows: 75/150 / front coverage: 95.2% / side coverage: 98.8%
+same points: <count> / matched rows: <matched>/<total> / active-row overlap: <ratio>% / row density min-med-max: <min>-<median>-<max> / coverage F/S: <front>%/<side>%
+Physical cloud: 1 THREE.Points object using 1 shared BufferGeometry (...). Row QA: active rows F/S/M=<front>/<side>/<matched>; drops F-only/S-only/empty=<frontOnly>/<sideOnly>/<emptyBoth>; sampled active pixels F/S=<front>/<side>. ... Point-cloud invariant: PASS.
 ```
 
 ## Extension roadmap

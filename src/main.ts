@@ -6,7 +6,15 @@ import './styles.css';
 type ViewMode = 'front' | 'right' | 'back' | 'left' | 'reveal' | 'orbit';
 type MaskSpec = { name: string; text: string; color: string };
 type MaskRows = { spec: MaskSpec; rows: number[][]; rowCount: number; width: number; height: number; activePixels: number };
-type CloudStats = { points: number; frontCoverage: number; sideCoverage: number; rowsUsed: number; rowCount: number };
+type RowSummary = { min: number; median: number; max: number };
+type RowBalanceStats = {
+  activeRows: Readonly<{ front: number; side: number; matched: number }>;
+  matchedRowRatio: number;
+  rowMismatches: Readonly<{ frontOnly: number; sideOnly: number; emptyBoth: number }>;
+  generatedPointsPerMatchedRow: Readonly<RowSummary>;
+  activePixels: Readonly<{ front: number; side: number }>;
+};
+type CloudStats = { points: number; frontCoverage: number; sideCoverage: number; rowsUsed: number; rowCount: number; rowBalance: RowBalanceStats };
 type LenticularQa = {
   seed: number;
   maskDimensions: Readonly<{ width: number; height: number; sampleStride: number }>;
@@ -14,6 +22,7 @@ type LenticularQa = {
   pointCount: number;
   coverage: Readonly<{ front: number; side: number }>;
   rowsUsed: number;
+  rowBalance: Readonly<RowBalanceStats>;
   projectionLabels: Readonly<{ front: string; right: string }>;
   scenePointsCount: number;
   pointCloudUsesSharedGeometry: boolean;
@@ -108,6 +117,52 @@ function shuffleInPlace<T>(items: T[], rand: () => number) {
   }
 }
 
+function summarizeCounts(counts: number[]): RowSummary {
+  if (counts.length === 0) return { min: 0, median: 0, max: 0 };
+  const sorted = [...counts].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+  return { min: sorted[0], median, max: sorted[sorted.length - 1] };
+}
+
+function analyzeRowBalance(front: MaskRows, side: MaskRows): RowBalanceStats {
+  let frontActiveRows = 0;
+  let sideActiveRows = 0;
+  let matchedRows = 0;
+  let frontOnly = 0;
+  let sideOnly = 0;
+  let emptyBoth = 0;
+  const generatedCounts: number[] = [];
+
+  for (let row = 0; row < ROW_COUNT; row += 1) {
+    const frontCount = front.rows[row].length;
+    const sideCount = side.rows[row].length;
+    const hasFront = frontCount > 0;
+    const hasSide = sideCount > 0;
+    if (hasFront) frontActiveRows += 1;
+    if (hasSide) sideActiveRows += 1;
+    if (hasFront && hasSide) {
+      matchedRows += 1;
+      generatedCounts.push(Math.min(frontCount, sideCount));
+    } else if (hasFront) {
+      frontOnly += 1;
+    } else if (hasSide) {
+      sideOnly += 1;
+    } else {
+      emptyBoth += 1;
+    }
+  }
+
+  const unionRows = matchedRows + frontOnly + sideOnly;
+  return {
+    activeRows: Object.freeze({ front: frontActiveRows, side: sideActiveRows, matched: matchedRows }),
+    matchedRowRatio: matchedRows / Math.max(1, unionRows),
+    rowMismatches: Object.freeze({ frontOnly, sideOnly, emptyBoth }),
+    generatedPointsPerMatchedRow: Object.freeze(summarizeCounts(generatedCounts)),
+    activePixels: Object.freeze({ front: front.activePixels, side: side.activePixels }),
+  };
+}
+
 function drawTextMask(spec: MaskSpec): MaskRows {
   const canvas = document.createElement('canvas');
   canvas.width = MASK_WIDTH;
@@ -158,6 +213,7 @@ function rowToY(row: number) {
 
 function generateSharedPointCloud(front: MaskRows, side: MaskRows): GeneratedCloud {
   const rand = seeded(RNG_SEED);
+  const rowBalance = analyzeRowBalance(front, side);
   const positions: number[] = [];
   const colors: number[] = [];
   let rowsUsed = 0;
@@ -199,6 +255,7 @@ function generateSharedPointCloud(front: MaskRows, side: MaskRows): GeneratedClo
       sideCoverage: sideUsed / Math.max(1, side.activePixels),
       rowsUsed,
       rowCount: ROW_COUNT,
+      rowBalance,
     },
   };
 }
@@ -310,6 +367,7 @@ function buildLenticularQa(): LenticularQa {
     pointCount: cloud.stats.points,
     coverage: Object.freeze({ front: cloud.stats.frontCoverage, side: cloud.stats.sideCoverage }),
     rowsUsed: cloud.stats.rowsUsed,
+    rowBalance: Object.freeze(cloud.stats.rowBalance),
     projectionLabels: Object.freeze({
       front: 'Front +Z orthographic projection: (x,y) => WHAT WE SEE',
       right: 'Right +X orthographic projection: (z,y) => WHAT EXISTS',
@@ -440,8 +498,9 @@ function animate(now: number) {
 }
 requestAnimationFrame(animate);
 
-errorMetric.textContent = `same points: ${cloud.stats.points.toLocaleString()} / rows: ${cloud.stats.rowsUsed}/${cloud.stats.rowCount} / front coverage: ${(cloud.stats.frontCoverage * 100).toFixed(1)}% / side coverage: ${(cloud.stats.sideCoverage * 100).toFixed(1)}%`;
-invariantQaMetric.textContent = `Physical cloud: ${window.__LENTICULAR_QA__.scenePointsCount} THREE.Points object using 1 shared BufferGeometry (${window.__LENTICULAR_QA__.geometryAttributes.names.join(' + ')} attributes, count=${window.__LENTICULAR_QA__.pointCount.toLocaleString()}). Helper axes/grid may have their own line geometries, but they are not point sets. Point-cloud invariant: ${window.__LENTICULAR_QA__.pointCloudInvariantHolds ? 'PASS' : 'FAIL'}.`;
+const qa = window.__LENTICULAR_QA__;
+errorMetric.textContent = `same points: ${cloud.stats.points.toLocaleString()} / matched rows: ${cloud.stats.rowsUsed}/${cloud.stats.rowCount} / active-row overlap: ${(cloud.stats.rowBalance.matchedRowRatio * 100).toFixed(1)}% / row density min-med-max: ${cloud.stats.rowBalance.generatedPointsPerMatchedRow.min}-${cloud.stats.rowBalance.generatedPointsPerMatchedRow.median}-${cloud.stats.rowBalance.generatedPointsPerMatchedRow.max} / coverage F/S: ${(cloud.stats.frontCoverage * 100).toFixed(1)}%/${(cloud.stats.sideCoverage * 100).toFixed(1)}%`;
+invariantQaMetric.textContent = `Physical cloud: ${qa.scenePointsCount} THREE.Points object using 1 shared BufferGeometry (${qa.geometryAttributes.names.join(' + ')} attributes, count=${qa.pointCount.toLocaleString()}). Row QA: active rows F/S/M=${qa.rowBalance.activeRows.front}/${qa.rowBalance.activeRows.side}/${qa.rowBalance.activeRows.matched}; drops F-only/S-only/empty=${qa.rowBalance.rowMismatches.frontOnly}/${qa.rowBalance.rowMismatches.sideOnly}/${qa.rowBalance.rowMismatches.emptyBoth}; sampled active pixels F/S=${qa.rowBalance.activePixels.front.toLocaleString()}/${qa.rowBalance.activePixels.side.toLocaleString()}. Helper axes/grid may have their own line geometries, but they are not point sets. Point-cloud invariant: ${qa.pointCloudInvariantHolds ? 'PASS' : 'FAIL'}.`;
 setView('front');
 
 (document.querySelector('#shotBtn') as HTMLButtonElement).onclick = () => {
