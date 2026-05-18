@@ -33,6 +33,12 @@ type LenticularQa = {
     colorCount: number;
     colorItemSize: number;
   }>;
+  visualStyle: Readonly<{
+    colorSource: 'fixed-per-point-attribute';
+    shaderGlowOnly: boolean;
+    viewDependentOpacityGate: boolean;
+    depthTestReadingGate: boolean;
+  }>;
   pointCloudInvariantHolds: boolean;
 };
 
@@ -58,7 +64,8 @@ const SAMPLE_STRIDE = 2;
 const POINT_SCALE_X = 3.3;
 const POINT_SCALE_Y = 1.2;
 const POINT_SCALE_Z = 3.3;
-const POINT_SIZE = 4.2;
+const POINT_SIZE = 3.8;
+const VIEW_HALF_HEIGHT = 1.75;
 const FRONT_SPEC: MaskSpec = {
   name: 'Front +Z',
   label: 'GOOSE',
@@ -106,7 +113,7 @@ app.innerHTML = `
       <p class="capture-status" id="captureStatus" role="status">Capture ready. Use Front/Right before PNG capture, or record a 10s rotation.</p>
       <section class="score-card"><h2>Invariant QA</h2><p class="qa-metric" id="invariantQaMetric">checking physical point-set invariant…</p></section>
       <section class="score-card"><h2>수학적 정의</h2><ul><li>점 하나: <code>p=(x,y,z)</code></li><li>Front +Z projection: <code>πZ(p)=(x,y)</code> → goose reference mask</li><li>Right +X projection: <code>πX(p)=(z,y)</code> → nubzuki reference mask</li><li>Back/Left는 같은 점의 좌우반전 projection</li></ul></section>
-      <section class="score-card"><h2>확장 계획</h2><ul><li>4-view: 독립 4장은 제약이 강하므로 row/voxel matching + noise suppression로 근사</li><li>색 변화: view-dependent color 또는 per-point multi-channel encoding</li><li>빛 적용: 현재는 additive point shader, 다음 단계에서 shaded splat/instanced tiny spheres 비교</li></ul></section>
+      <section class="score-card"><h2>색/빛 단계</h2><ul><li>Geometry는 그대로 하나의 <code>BufferGeometry</code>입니다.</li><li>각 점은 고정된 per-point color attribute를 가집니다.</li><li>cyan→magenta→gold palette와 radial glow shader만 추가했고, view별 geometry/opacity gate는 추가하지 않았습니다.</li></ul></section>
       <section class="score-card"><h2>우선 규정</h2><ul>${contestRules.map((r) => `<li><b>${r.title}</b> — ${r.implementationPolicy}</li>`).join('')}</ul></section>
     </aside>
   </main>
@@ -278,8 +285,10 @@ function generateSharedPointCloud(front: MaskRows, side: MaskRows): GeneratedClo
   let frontUsed = 0;
   let sideUsed = 0;
 
-  const colorA = new THREE.Color(FRONT_SPEC.color);
-  const colorB = new THREE.Color(SIDE_SPEC.color);
+  const colorA = new THREE.Color('#7dd3fc');
+  const colorB = new THREE.Color('#f472b6');
+  const colorC = new THREE.Color('#facc15');
+  const colorD = new THREE.Color('#ffffff');
   const mixed = new THREE.Color();
 
   for (let row = 0; row < ROW_COUNT; row += 1) {
@@ -296,8 +305,14 @@ function generateSharedPointCloud(front: MaskRows, side: MaskRows): GeneratedClo
       const x = xs[i % xs.length];
       const z = -zs[i % zs.length];
       positions.push(x, y, z);
-      const tint = 0.35 + 0.45 * rand();
-      mixed.copy(colorA).lerp(colorB, (z / POINT_SCALE_Z) + 0.5).multiplyScalar(tint + 0.45);
+      const tint = 0.58 + 0.34 * rand();
+      const xNorm = x / POINT_SCALE_X + 0.5;
+      const zNorm = -z / POINT_SCALE_Z + 0.5;
+      const yNorm = y / POINT_SCALE_Y + 0.5;
+      mixed.copy(colorA).lerp(colorB, zNorm);
+      mixed.lerp(colorC, Math.max(0, 0.35 - Math.abs(xNorm - 0.18)) * 0.75);
+      mixed.lerp(colorD, Math.max(0, yNorm - 0.58) * 0.28);
+      mixed.multiplyScalar(tint);
       colors.push(mixed.r, mixed.g, mixed.b);
       frontUsed += 1;
       sideUsed += 1;
@@ -324,8 +339,8 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x05070d);
-scene.fog = new THREE.Fog(0x05070d, 7, 14);
+scene.background = new THREE.Color(0x03040a);
+scene.fog = new THREE.Fog(0x03040a, 6, 13);
 
 const frontMask = await drawReferenceImageMask(FRONT_SPEC);
 const sideMask = await drawReferenceImageMask(SIDE_SPEC);
@@ -339,7 +354,7 @@ geometry.computeBoundingSphere();
 const material = new THREE.ShaderMaterial({
   uniforms: {
     uSize: { value: POINT_SIZE * Math.min(devicePixelRatio, 2) },
-    uAlpha: { value: 0.94 },
+    uAlpha: { value: 0.86 },
   },
   vertexShader: `
     uniform float uSize;
@@ -357,8 +372,10 @@ const material = new THREE.ShaderMaterial({
     void main() {
       float d = length(gl_PointCoord - vec2(0.5));
       if (d > 0.5) discard;
-      float alpha = smoothstep(0.5, 0.12, d) * uAlpha;
-      gl_FragColor = vec4(vColor, alpha);
+      float alpha = smoothstep(0.5, 0.06, d) * uAlpha;
+      float core = smoothstep(0.18, 0.0, d);
+      vec3 glowColor = mix(vColor * 1.12, vec3(1.0), core * 0.22);
+      gl_FragColor = vec4(glowColor, alpha);
     }
   `,
   vertexColors: true,
@@ -439,6 +456,12 @@ function buildLenticularQa(): LenticularQa {
       colorCount,
       colorItemSize,
     }),
+    visualStyle: Object.freeze({
+      colorSource: 'fixed-per-point-attribute',
+      shaderGlowOnly: true,
+      viewDependentOpacityGate: false,
+      depthTestReadingGate: false,
+    }),
     pointCloudInvariantHolds,
   });
 }
@@ -450,7 +473,7 @@ Object.defineProperty(window, '__LENTICULAR_QA__', {
 });
 
 const aspect = 16 / 9;
-const camera = new THREE.OrthographicCamera(-2.25 * aspect, 2.25 * aspect, 2.25, -2.25, 0.01, 100);
+const camera = new THREE.OrthographicCamera(-VIEW_HALF_HEIGHT * aspect, VIEW_HALF_HEIGHT * aspect, VIEW_HALF_HEIGHT, -VIEW_HALF_HEIGHT, 0.01, 100);
 camera.position.set(0, 0, 6);
 camera.lookAt(0, 0, 0);
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -524,10 +547,10 @@ function resize() {
   const rect = canvas.parentElement!.getBoundingClientRect();
   renderer.setSize(rect.width, rect.height, false);
   const a = rect.width / rect.height;
-  camera.left = -2.25 * a;
-  camera.right = 2.25 * a;
-  camera.top = 2.25;
-  camera.bottom = -2.25;
+  camera.left = -VIEW_HALF_HEIGHT * a;
+  camera.right = VIEW_HALF_HEIGHT * a;
+  camera.top = VIEW_HALF_HEIGHT;
+  camera.bottom = -VIEW_HALF_HEIGHT;
   camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize);
@@ -558,7 +581,7 @@ requestAnimationFrame(animate);
 
 const qa = window.__LENTICULAR_QA__;
 errorMetric.textContent = `same points: ${cloud.stats.points.toLocaleString()} / matched rows: ${cloud.stats.rowsUsed}/${cloud.stats.rowCount} / active-row overlap: ${(cloud.stats.rowBalance.matchedRowRatio * 100).toFixed(1)}% / row density min-med-max: ${cloud.stats.rowBalance.generatedPointsPerMatchedRow.min}-${cloud.stats.rowBalance.generatedPointsPerMatchedRow.median}-${cloud.stats.rowBalance.generatedPointsPerMatchedRow.max} / coverage F/S: ${(cloud.stats.frontCoverage * 100).toFixed(1)}%/${(cloud.stats.sideCoverage * 100).toFixed(1)}%`;
-invariantQaMetric.textContent = `Physical cloud: ${qa.scenePointsCount} THREE.Points object using 1 shared BufferGeometry (${qa.geometryAttributes.names.join(' + ')} attributes, count=${qa.pointCount.toLocaleString()}). Row QA: active rows F/S/M=${qa.rowBalance.activeRows.front}/${qa.rowBalance.activeRows.side}/${qa.rowBalance.activeRows.matched}; drops F-only/S-only/empty=${qa.rowBalance.rowMismatches.frontOnly}/${qa.rowBalance.rowMismatches.sideOnly}/${qa.rowBalance.rowMismatches.emptyBoth}; sampled active pixels F/S=${qa.rowBalance.activePixels.front.toLocaleString()}/${qa.rowBalance.activePixels.side.toLocaleString()}. Helper axes/grid may have their own line geometries, but they are not point sets. Point-cloud invariant: ${qa.pointCloudInvariantHolds ? 'PASS' : 'FAIL'}.`;
+invariantQaMetric.textContent = `Physical cloud: ${qa.scenePointsCount} THREE.Points object using 1 shared BufferGeometry (${qa.geometryAttributes.names.join(' + ')} attributes, count=${qa.pointCount.toLocaleString()}). Row QA: active rows F/S/M=${qa.rowBalance.activeRows.front}/${qa.rowBalance.activeRows.side}/${qa.rowBalance.activeRows.matched}; drops F-only/S-only/empty=${qa.rowBalance.rowMismatches.frontOnly}/${qa.rowBalance.rowMismatches.sideOnly}/${qa.rowBalance.rowMismatches.emptyBoth}; sampled active pixels F/S=${qa.rowBalance.activePixels.front.toLocaleString()}/${qa.rowBalance.activePixels.side.toLocaleString()}. Style QA: ${qa.visualStyle.colorSource}, shaderGlowOnly=${qa.visualStyle.shaderGlowOnly}, viewOpacityGate=${qa.visualStyle.viewDependentOpacityGate}, depthGate=${qa.visualStyle.depthTestReadingGate}. Helper axes/grid may have their own line geometries, but they are not point sets. Point-cloud invariant: ${qa.pointCloudInvariantHolds ? 'PASS' : 'FAIL'}.`;
 setView('front');
 
 (document.querySelector('#shotBtn') as HTMLButtonElement).onclick = () => {

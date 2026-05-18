@@ -1,6 +1,6 @@
 # One Cloud, Multiple Readings: 3D Lenticular Point Cloud
 
-Browser/WebGL implementation for the KAIST 3D Rendering Contest. The core artifact is a single shared `THREE.BufferGeometry` point cloud: every point has one physical coordinate `(x,y,z)`. From the front orthographic view the projection `(x,y)` reads `WHAT WE SEE`; from the right orthographic view the projection `(z,y)` reads `WHAT EXISTS`. Back/left views show the same physical points as mirrored projections.
+Browser/WebGL implementation for the KAIST 3D Rendering Contest. The core artifact is a single shared `THREE.BufferGeometry` point cloud: every point has one physical coordinate `(x,y,z)`. From the front orthographic view the projection `(x,y)` reads the goose reference image; from the right orthographic view the projection `(z,y)` reads the nubzuki reference image. Back/left views show the same physical points as mirrored projections.
 
 ## KAIST rule posture
 
@@ -20,8 +20,8 @@ Required condition:
 ```text
 There is one point set P only.
 For each p=(x,y,z) in P:
-  Front +Z image uses (x,y) -> WHAT WE SEE
-  Right +X image uses (z,y) -> WHAT EXISTS
+  Front +Z image uses (x,y) -> goose reference image
+  Right +X image uses (z,y) -> nubzuki reference image
 ```
 
 No second point cloud, no duplicate text mesh, and no view-dependent opacity gate is used to fake the two readings.
@@ -45,7 +45,7 @@ Browser console invariant/metrics export:
 window.__LENTICULAR_QA__
 ```
 
-The object is deterministic for the generated shared cloud and recomputes when read from the console. It includes the RNG seed, mask dimensions, row count, point count, front/side coverage, rows used, projection labels, scene `THREE.Points` count, shared-geometry identity check, explicit `position`/`color` attribute counts and item sizes, and `pointCloudInvariantHolds` boolean. It also exposes `rowBalance`, a deterministic density/legibility QA block computed from the same sampled mask rows before/while generating the one physical point set:
+The object is deterministic for the generated shared cloud and recomputes when read from the console. It includes the RNG seed, mask dimensions, row count, point count, front/side coverage, rows used, projection labels, scene `THREE.Points` count, shared-geometry identity check, explicit `position`/`color` attribute counts and item sizes, fixed per-point color/glow style metadata, and `pointCloudInvariantHolds` boolean. It also exposes `rowBalance`, a deterministic density/legibility QA block computed from the same sampled mask rows before/while generating the one physical point set:
 
 ```js
 window.__LENTICULAR_QA__.rowBalance
@@ -68,8 +68,8 @@ npm run qa:submission
 
 ## Viewer controls
 
-- `Front +Z: WHAT WE SEE`: orthographic front projection of the shared cloud.
-- `Right +X: WHAT EXISTS`: orthographic side projection of the same cloud.
+- `Front +Z: goose`: orthographic front projection of the shared cloud.
+- `Right +X: nubzuki`: orthographic side projection of the same cloud.
 - `Back −Z: mirrored A`: same cloud, mirrored front projection.
 - `Left −X: mirrored B`: same cloud, mirrored side projection.
 - `3D reveal`: oblique camera showing that the object is a scattered 3D cloud.
@@ -79,10 +79,10 @@ npm run qa:submission
 
 ## Algorithm
 
-1. Draw target images/texts into deterministic Canvas 2D masks.
+1. Draw target reference images into deterministic Canvas 2D masks; text masks remain as a fallback path for development.
 2. Extract active pixels into row bins.
 3. For each row `r`, collect front x-coordinates `X_r` and side z-coordinates `Z_r`.
-4. Generate `N_r = min(|X_r|, |Z_r|)` shared 3D points:
+4. Generate `N_r = max(|X_r|, |Z_r|)` shared 3D points, reusing the shorter row modulo its sampled coordinates so the denser view is not unnecessarily thinned:
 
 ```text
 p_i^r = (x_i, y_r, z_i)
@@ -92,28 +92,34 @@ The current implementation uses the side coordinate sign needed by the Three.js 
 
 ## Current evidence
 
-Browser-verified screenshots:
+Browser-verified screenshots and video:
 
-- `artifacts/lenticular-shared/front-what-we-see.png`
-- `artifacts/lenticular-shared/right-what-exists.png`
+- `artifacts/current-video/lenticular-shared-cloud-current.mp4` — MP4 capture of the previous text-based shared-cloud state, converted from the browser WebM capture and kept under the KAIST MP4 size limit.
+- Historical text-cloud baseline kept for comparison only: `artifacts/lenticular-shared/front-what-we-see.png` and `artifacts/lenticular-shared/right-what-exists.png`.
+- `artifacts/reference-image/goose.jpg` and `artifacts/reference-image/nubzuki.jpg` — reference images used by the current `reference-image-two-view` branch.
+- `artifacts/reference-image-two-view/front-goose-color.png` — browser-verified colored Front +Z goose projection.
+- `artifacts/reference-image-two-view/right-nubzuki-color.png` — browser-verified colored Right +X nubzuki projection.
+- `artifacts/lenticular-color-light-tick3-20260518T011500Z/front-goose-color-light-page.png` — Tick 3 browser QA page screenshot for the color/glow front view.
+- `artifacts/lenticular-color-light-tick3-20260518T011500Z/right-nubzuki-color-light-page.png` — Tick 3 browser QA page screenshot for the color/glow right view.
+- `artifacts/lenticular-color-light-tick3-20260518T011500Z/browser-qa-summary.json` — Tick 3 invariant/style/browser-console summary.
 
 Viewer metric format displayed at runtime:
 
 ```text
 same points: <count> / matched rows: <matched>/<total> / active-row overlap: <ratio>% / row density min-med-max: <min>-<median>-<max> / coverage F/S: <front>%/<side>%
-Physical cloud: 1 THREE.Points object using 1 shared BufferGeometry (...). Row QA: active rows F/S/M=<front>/<side>/<matched>; drops F-only/S-only/empty=<frontOnly>/<sideOnly>/<emptyBoth>; sampled active pixels F/S=<front>/<side>. ... Point-cloud invariant: PASS.
+Physical cloud: 1 THREE.Points object using 1 shared BufferGeometry (...). Row QA: active rows F/S/M=<front>/<side>/<matched>; drops F-only/S-only/empty=<frontOnly>/<sideOnly>/<emptyBoth>; sampled active pixels F/S=<front>/<side>. Style QA: fixed-per-point-attribute, shaderGlowOnly=true, viewOpacityGate=false, depthGate=false. ... Point-cloud invariant: PASS.
 ```
 
 ## Extension roadmap
 
 - 4-view: exact independent north/east/south/west images are over-constrained for one `(x,y,z)` point set. Implement approximate 4-view matching with more points, row/column/voxel compatibility scoring, and explicit signal/noise metrics.
-- Color changes: add per-point color channels and view-dependent color weighting, while preserving the physical point identity invariant.
+- Color changes: current slice uses fixed per-point color attributes plus shader glow only; future color experiments must preserve point identity and must not swap geometry or opacity-gate readings.
 - Light/shading: compare additive `THREE.Points`, Gaussian/sprite splats, and instanced tiny spheres for better contest rendering.
 - Evaluation: add automated orthographic captures and image-mask similarity metrics for each canonical view.
 
 ## Source map
 
-- `src/main.ts`: shared point-cloud generation, Canvas text masks, row matching, Three.js orthographic viewer, PNG/WebM capture.
+- `src/main.ts`: shared point-cloud generation, Canvas reference-image/text-fallback masks, row matching, fixed per-point color attributes, Three.js orthographic viewer, PNG/WebM capture.
 - `src/contestRules.ts`: durable KAIST rule summary displayed in the app.
 - `src/styles.css`: browser UI and capture-status styling.
 - `scripts/final-qa.mjs`: timestamped final-submission sanity report for artifact/file/bundle size checks.
