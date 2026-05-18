@@ -93,7 +93,7 @@ p_k^r = (x_k, y_r, z_k)
 
 The current implementation uses the side coordinate sign needed by the Three.js +X camera convention so the right-view screen reads left-to-right.
 
-Each point stores both endpoint RGB attributes, `frontColor` and `sideColor`. The shader computes `cosine_s1` directional color from the camera direction, preserving front color at the front endpoint and side color at the right endpoint. A small deterministic sub-row y jitter plus tuned splat size/alpha softens the most rigid scanline look while keeping the same point set. `npm run qa:visual-metrics -- <screenshots>` provides repeatable heuristic screenshot metrics for banding/fill comparisons; browser screenshots remain the perceptual authority. There is still no view-dependent opacity gate, texture swap, billboard, or second point set.
+Each point stores both endpoint RGB attributes, `frontColor` and `sideColor`. The shader computes `cosine_s1` directional color from the camera direction, preserving front color at the front endpoint and side color at the right endpoint. A small deterministic sub-row y jitter plus tuned splat size/alpha and subtle deterministic point-size jitter soften the most rigid scanline look while keeping the same point set. `npm run qa:visual-metrics -- <screenshots>` provides repeatable heuristic screenshot metrics for banding/fill comparisons; browser screenshots remain the perceptual authority. There is still no view-dependent opacity gate, texture swap, billboard, or second point set.
 
 ## Current evidence
 

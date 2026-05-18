@@ -1,0 +1,98 @@
+{
+  "metricsVersion": 1,
+  "images": [
+    {
+      "path": "artifacts\\algorithm-implementation\\front-jitter-splat-20260518.png",
+      "imageSize": {
+        "width": 1239,
+        "height": 664
+      },
+      "cropBox": [
+        0,
+        53,
+        817,
+        584
+      ],
+      "estimatedBackgroundRgb": [
+        6,
+        11,
+        20
+      ],
+      "foregroundFillRatio": 0.0322,
+      "activeRowRatio": 0.4896,
+      "rowForegroundMedian": 20.0,
+      "rowCountCv": 1.6707,
+      "rowGapRatio": 0.3409,
+      "adjacentRowEnergy": 22.8818,
+      "twoRowEnergy": 25.5844,
+      "bandingIndex": 0.8944,
+      "interpretation": {
+        "lowerRowGapRatio": "usually more solid projection",
+        "lowerBandingIndex": "usually less alternating scanline energy; compare only similar screenshots",
+        "browserVisionStillRequired": true
+      }
+    },
+    {
+      "path": "artifacts\\algorithm-implementation\\front-sizejitter-20260518.png",
+      "imageSize": {
+        "width": 1239,
+        "height": 664
+      },
+      "cropBox": [
+        0,
+        53,
+        817,
+        584
+      ],
+      "estimatedBackgroundRgb": [
+        6,
+        11,
+        20
+      ],
+      "foregroundFillRatio": 0.0322,
+      "activeRowRatio": 0.4859,
+      "rowForegroundMedian": 20.0,
+      "rowCountCv": 1.6679,
+      "rowGapRatio": 0.3409,
+      "adjacentRowEnergy": 22.4477,
+      "twoRowEnergy": 25.1782,
+      "bandingIndex": 0.8916,
+      "interpretation": {
+        "lowerRowGapRatio": "usually more solid projection",
+        "lowerBandingIndex": "usually less alternating scanline energy; compare only similar screenshots",
+        "browserVisionStillRequired": true
+      }
+    },
+    {
+      "path": "artifacts\\algorithm-implementation\\right-sizejitter-20260518.png",
+      "imageSize": {
+        "width": 1239,
+        "height": 685
+      },
+      "cropBox": [
+        0,
+        54,
+        817,
+        602
+      ],
+      "estimatedBackgroundRgb": [
+        6,
+        10,
+        19
+      ],
+      "foregroundFillRatio": 0.0801,
+      "activeRowRatio": 0.6332,
+      "rowForegroundMedian": 111,
+      "rowCountCv": 0.6428,
+      "rowGapRatio": 0.4288,
+      "adjacentRowEnergy": 19.4212,
+      "twoRowEnergy": 29.304,
+      "bandingIndex": 0.6627,
+      "interpretation": {
+        "lowerRowGapRatio": "usually more solid projection",
+        "lowerBandingIndex": "usually less alternating scanline energy; compare only similar screenshots",
+        "browserVisionStillRequired": true
+      }
+    }
+  ]
+}

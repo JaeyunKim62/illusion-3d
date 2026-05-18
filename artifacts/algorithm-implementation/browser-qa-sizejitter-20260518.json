@@ -1,0 +1,30 @@
+{
+  "iteration": 4,
+  "change": "deterministic point-size jitter tuned to ±0.10",
+  "subRowJitterScale": 0.42,
+  "pointSize": 2.55,
+  "alpha": 0.72,
+  "pointSizeJitter": 0.10,
+  "runtimeQa": {
+    "pointCount": 20797,
+    "projectionCount": 2,
+    "projectionOnlyPointCount": 0,
+    "noProjectionOnlyPoints": true,
+    "scenePointsCount": 1,
+    "pointCloudUsesSharedGeometry": true,
+    "geometryAttributes": ["frontColor", "position", "sideColor"],
+    "rowMaterializationPolicy": "quantile_max",
+    "rowOrderPolicy": "sorted-midpoint-quantile",
+    "colorPolicy": "cosine_s1-directional-color",
+    "viewDependentOpacityGate": false,
+    "depthTestReadingGate": false,
+    "pointCloudInvariantHolds": true
+  },
+  "browserConsoleErrors": [],
+  "browserVisionVerdict": {
+    "front": "keep; ±0.10 is cleaner than ±0.14 and less sterile than uniform splat",
+    "right": "keep; readability remains good and motifs stay sharper than ±0.14",
+    "reveal": "keep; one-cloud reveal preserved with modestly improved naturalness"
+  },
+  "remainingWeakness": "horizontal scanline/banding remains visible; point-size jitter only softens mechanical regularity"
+}
