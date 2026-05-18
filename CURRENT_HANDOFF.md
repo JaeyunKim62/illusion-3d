@@ -117,25 +117,54 @@ Older color/glow evidence exists, but after the 3-view revert the clean common-p
 - `writeup/writeup.md`: updated current write-up draft for the 2-view lenticular point-cloud direction.
 - `project_proposal.md`: originally written for the older perceptual-room direction; now has a current-status warning at the top.
 
-## Next requested task
+## Latest color pass result
 
-Implement the next quality pass:
+Implemented the requested quality pass:
 
 ```text
 2-view로 넙죽이와 거위 색까지 표현해서 제대로 만들어줘라.
 ```
 
-Interpretation:
+What changed:
 
-- Improve the current goose/nubzuki 2-view point cloud so both images are not only silhouettes but visually color-expressive.
-- Preserve the one shared physical point cloud invariant.
-- Use fixed per-point color attributes or physically stable multi-channel encoding only.
-- Do not fake color with view-dependent opacity/geometry swaps.
-- Re-run `npm run harness` and `npm run qa:submission`.
-- Browser-check Front +Z, Right +X, and 3D reveal.
-- Save new evidence screenshots under `artifacts/evidence/` or a timestamped artifact folder.
+- Reference mask extraction now flood-fills white page background from the canvas edges, so enclosed white object regions remain active.
+- Each row sample carries RGB from the reference image, not only an x/z coordinate.
+- Each shared 3D point gets one fixed per-point RGB attribute from a deterministic goose/nubzuki reference-color blend.
+- Density was raised from `SAMPLE_STRIDE=2`, `ROW_COUNT=150` to `SAMPLE_STRIDE=1`, `ROW_COUNT=190`; current cloud has 18,102 shared points.
+- Point size/framing were tightened for clearer canonical screenshots.
+- No view-dependent opacity/geometry/texture swap was introduced.
 
-## Suggested implementation approach for color
+Latest checks:
+
+- `npm run harness`: PASS
+- `npm run qa:submission`: PASS, report `artifacts/final-qa-20260518T022452Z.json`
+- Browser console in the dev app: no JS errors
+- Runtime QA: `scenePointsCount=1`, shared geometry PASS, `projectionOnlyPointCount=0`, `noProjectionOnlyPoints=true`, `colorPolicy=reference-rgb-shared-blend`
+
+Latest evidence:
+
+```text
+artifacts/evidence/front-goose-color-2view-20260518.png
+artifacts/evidence/right-nubzuki-color-2view-20260518.png
+artifacts/evidence/reveal-color-2view-20260518.png
+```
+
+Observed quality:
+
+- Front goose is recognizable with light cyan/white body, darker outline/details, and visible beak/feet color influence.
+- Right Nubzuki is recognizable with blue/cyan body, pink facial protrusion, black/dark details, and white/light areas.
+- Remaining visual weakness: horizontal row banding and point-cloud speckle/noisy edges are still visible, especially in fine face/foot details.
+
+## Next likely task
+
+If continuing polish, target the remaining banding/noise without breaking the invariant:
+
+- try jittered sub-row y placement inside each row while preserving projection readability,
+- compare smaller splat size vs mild additive alpha,
+- add automated canonical image similarity metrics,
+- export a fresh final MP4 from the current color branch.
+
+## Previous suggested implementation approach for color
 
 Start with a small spike before changing the main renderer:
 

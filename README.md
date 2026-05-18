@@ -80,15 +80,18 @@ npm run qa:submission
 ## Algorithm
 
 1. Draw target reference images into deterministic Canvas 2D masks; text masks remain as a fallback path for development.
-2. Extract active pixels into row bins.
-3. For each row `r`, collect front x-coordinates `X_r` and side z-coordinates `Z_r`.
-4. Generate `N_r = max(|X_r|, |Z_r|)` shared 3D points, reusing the shorter row modulo its sampled coordinates so the denser view is not unnecessarily thinned:
+2. Flood-fill the white page background from the canvas edges so enclosed white object regions (goose body, eyes, KAIST letters) stay active instead of disappearing into the background.
+3. Extract active pixels into row bins with their sampled RGB color.
+4. For each row `r`, collect front x-coordinates/colors `X_r` and side z-coordinates/colors `Z_r`.
+5. Generate `N_r = max(|X_r|, |Z_r|)` shared 3D points, reusing the shorter row modulo its sampled coordinates so the denser view is not unnecessarily thinned:
 
 ```text
 p_i^r = (x_i, y_r, z_i)
 ```
 
 The current implementation uses the side coordinate sign needed by the Three.js +X camera convention so the right-view screen reads left-to-right.
+
+Each point also gets exactly one fixed per-point RGB attribute. That color is a deterministic shared-space blend of the paired goose and nubzuki reference pixels, biased toward saturated/dark reference samples so blue/pink Nubzuki regions and orange/dark goose details remain visible. There is still no view-dependent opacity gate, texture swap, billboard, or second point set.
 
 ## Current evidence
 
@@ -97,6 +100,10 @@ Browser-verified screenshots and video:
 - `artifacts/current-video/lenticular-shared-cloud-current.mp4` — MP4 capture of the previous text-based shared-cloud state, converted from the browser WebM capture and kept under the KAIST MP4 size limit.
 - Historical text-cloud baseline kept for comparison only: `artifacts/lenticular-shared/front-what-we-see.png` and `artifacts/lenticular-shared/right-what-exists.png`.
 - `artifacts/reference-image/goose.jpg` and `artifacts/reference-image/nubzuki.jpg` — reference images used by the current `reference-image-two-view` branch.
+- `artifacts/evidence/front-goose-color-2view-20260518.png` — latest browser-verified colored Front +Z goose projection, 18,102 shared points.
+- `artifacts/evidence/right-nubzuki-color-2view-20260518.png` — latest browser-verified colored Right +X nubzuki projection, same 18,102 points.
+- `artifacts/evidence/reveal-color-2view-20260518.png` — latest browser-verified oblique reveal of the one distorted 3D cloud.
+- `artifacts/final-qa-20260518T022452Z.json` — latest `npm run qa:submission` report after the color pass.
 - `artifacts/reference-image-two-view/front-goose-color.png` — browser-verified colored Front +Z goose projection.
 - `artifacts/reference-image-two-view/right-nubzuki-color.png` — browser-verified colored Right +X nubzuki projection.
 - `artifacts/lenticular-color-light-tick3-20260518T011500Z/front-goose-color-light-page.png` — Tick 3 browser QA page screenshot for the color/glow front view.

@@ -5,7 +5,9 @@ import './styles.css';
 
 type ViewMode = 'front' | 'right' | 'back' | 'left' | 'reveal' | 'orbit';
 type MaskSpec = { name: string; label: string; color: string; imageUrl?: string };
-type MaskRows = { spec: MaskSpec; rows: number[][]; rowCount: number; width: number; height: number; activePixels: number };
+type Rgb = readonly [number, number, number];
+type MaskSample = { coord: number; color: Rgb };
+type MaskRows = { spec: MaskSpec; rows: MaskSample[][]; rowCount: number; width: number; height: number; activePixels: number };
 type RowSummary = { min: number; median: number; max: number };
 type RowBalanceStats = {
   activeRows: Readonly<{ front: number; side: number; matched: number }>;
@@ -25,6 +27,7 @@ type CloudStats = {
   projectionOnlyPointCount: 0;
   noProjectionOnlyPoints: true;
   backgroundNoisePolicy: 'no projection-only points; every rendered point must be paired from front and side masks';
+  colorPolicy: 'fixed per-point RGB sampled from both reference images and blended in shared space';
 };
 type LenticularQa = {
   seed: number;
@@ -50,6 +53,7 @@ type LenticularQa = {
   }>;
   visualStyle: Readonly<{
     colorSource: 'fixed-per-point-attribute';
+    colorPolicy: 'reference-rgb-shared-blend';
     shaderGlowOnly: boolean;
     viewDependentOpacityGate: boolean;
     depthTestReadingGate: boolean;
@@ -74,13 +78,13 @@ if (!app) throw new Error('Missing #app root');
 
 const MASK_WIDTH = 960;
 const MASK_HEIGHT = 280;
-const ROW_COUNT = 150;
-const SAMPLE_STRIDE = 2;
+const ROW_COUNT = 190;
+const SAMPLE_STRIDE = 1;
 const POINT_SCALE_X = 3.3;
 const POINT_SCALE_Y = 1.2;
 const POINT_SCALE_Z = 3.3;
-const POINT_SIZE = 3.2;
-const VIEW_HALF_HEIGHT = 1.75;
+const POINT_SIZE = 2.25;
+const VIEW_HALF_HEIGHT = 1.48;
 const FRONT_SPEC: MaskSpec = {
   name: 'Front +Z',
   label: 'GOOSE',
@@ -195,39 +199,85 @@ function analyzeRowBalance(front: MaskRows, side: MaskRows): RowBalanceStats {
   };
 }
 
-function extractRowsFromCanvas(canvas: HTMLCanvasElement, active: (r: number, g: number, b: number, a: number) => boolean): number[][] {
+function isCanvasBackground(r: number, g: number, b: number, a: number) {
+  if (a < 64) return true;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const saturation = max - min;
+  return r > 226 && g > 226 && b > 226 && saturation < 28;
+}
+
+function normalizeRgb(r: number, g: number, b: number): Rgb {
+  return [r / 255, g / 255, b / 255];
+}
+
+function enclosedObjectMask(data: Uint8ClampedArray, width: number, height: number) {
+  const reachableBackground = new Uint8Array(width * height);
+  const queue: number[] = [];
+  const pushIfBackground = (x: number, y: number) => {
+    if (x < 0 || x >= width || y < 0 || y >= height) return;
+    const index = y * width + x;
+    if (reachableBackground[index]) return;
+    const i = index * 4;
+    if (!isCanvasBackground(data[i], data[i + 1], data[i + 2], data[i + 3])) return;
+    reachableBackground[index] = 1;
+    queue.push(index);
+  };
+
+  for (let x = 0; x < width; x += 1) {
+    pushIfBackground(x, 0);
+    pushIfBackground(x, height - 1);
+  }
+  for (let y = 0; y < height; y += 1) {
+    pushIfBackground(0, y);
+    pushIfBackground(width - 1, y);
+  }
+
+  for (let head = 0; head < queue.length; head += 1) {
+    const index = queue[head];
+    const x = index % width;
+    const y = Math.floor(index / width);
+    pushIfBackground(x + 1, y);
+    pushIfBackground(x - 1, y);
+    pushIfBackground(x, y + 1);
+    pushIfBackground(x, y - 1);
+  }
+
+  return reachableBackground;
+}
+
+function extractColorRowsFromCanvas(canvas: HTMLCanvasElement): MaskSample[][] {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) throw new Error('Cannot read 2D mask context');
-  const rows = Array.from({ length: ROW_COUNT }, () => [] as number[]);
-  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  const rows = Array.from({ length: ROW_COUNT }, () => [] as MaskSample[]);
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = image.data;
+  const background = enclosedObjectMask(data, canvas.width, canvas.height);
+
   for (let py = 0; py < canvas.height; py += SAMPLE_STRIDE) {
     const row = Math.floor((py / (canvas.height - 1)) * (ROW_COUNT - 1));
     for (let px = 0; px < canvas.width; px += SAMPLE_STRIDE) {
-      const idx = (py * canvas.width + px) * 4;
-      if (active(data[idx], data[idx + 1], data[idx + 2], data[idx + 3])) {
-        const x = ((px / (canvas.width - 1)) - 0.5) * POINT_SCALE_X;
-        rows[row].push(x);
+      const pixelIndex = py * canvas.width + px;
+      if (background[pixelIndex]) continue;
+      const idx = pixelIndex * 4;
+      if (data[idx + 3] < 64) continue;
+      const coord = ((px / (canvas.width - 1)) - 0.5) * POINT_SCALE_X;
+      let r = data[idx];
+      let g = data[idx + 1];
+      let b = data[idx + 2];
+      if (isCanvasBackground(r, g, b, data[idx + 3])) {
+        // Enclosed white regions such as goose body / eyes / KAIST letters are real object pixels.
+        r = 242;
+        g = 248;
+        b = 255;
       }
+      rows[row].push({ coord, color: normalizeRgb(r, g, b) });
     }
   }
   return rows;
 }
 
-function rowsFromBooleanMask(activeMask: Uint8Array, width: number, height: number): number[][] {
-  const rows = Array.from({ length: ROW_COUNT }, () => [] as number[]);
-  for (let py = 0; py < height; py += SAMPLE_STRIDE) {
-    const row = Math.floor((py / (height - 1)) * (ROW_COUNT - 1));
-    for (let px = 0; px < width; px += SAMPLE_STRIDE) {
-      if (activeMask[py * width + px]) {
-        const x = ((px / (width - 1)) - 0.5) * POINT_SCALE_X;
-        rows[row].push(x);
-      }
-    }
-  }
-  return rows;
-}
-
-function countActivePixels(rows: number[][]) {
+function countActivePixels(rows: MaskSample[][]) {
   return rows.reduce((sum, row) => sum + row.length, 0);
 }
 
@@ -255,7 +305,7 @@ function drawFallbackTextMask(spec: MaskSpec): MaskRows {
   ctx.font = '900 104px Arial Black, Arial, sans-serif';
   ctx.fillText(spec.label, canvas.width / 2, canvas.height / 2 + 6);
 
-  const rows = extractRowsFromCanvas(canvas, (r) => r > 128);
+  const rows = extractColorRowsFromCanvas(canvas);
   return { spec, rows, rowCount: ROW_COUNT, width: canvas.width, height: canvas.height, activePixels: countActivePixels(rows) };
 }
 
@@ -277,21 +327,39 @@ async function drawReferenceImageMask(spec: MaskSpec): Promise<MaskRows> {
   const h = (image.naturalHeight - crop * 2) * scale;
   ctx.drawImage(image, crop, crop, image.naturalWidth - crop * 2, image.naturalHeight - crop * 2, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
 
-  const rows = extractRowsFromCanvas(canvas, (r, g, b, a) => {
-    if (a < 64) return false;
-    const saturation = Math.max(r, g, b) - Math.min(r, g, b);
-    const lightNeutral = r > 168 && g > 168 && b > 168 && saturation < 24;
-    if (lightNeutral) return false;
-    const darkInk = r + g + b < 620;
-    const coloredInk = saturation > 30;
-    return coloredInk || darkInk;
-  });
+  const rows = extractColorRowsFromCanvas(canvas);
 
   return { spec, rows, rowCount: ROW_COUNT, width: canvas.width, height: canvas.height, activePixels: countActivePixels(rows) };
 }
 
 function rowToY(row: number) {
   return (0.5 - row / (ROW_COUNT - 1)) * POINT_SCALE_Y;
+}
+
+function colorChroma(color: Rgb) {
+  return Math.max(color[0], color[1], color[2]) - Math.min(color[0], color[1], color[2]);
+}
+
+function colorDarkness(color: Rgb) {
+  return 1 - (color[0] + color[1] + color[2]) / 3;
+}
+
+function blendReferenceColors(frontColor: Rgb, sideColor: Rgb, rand: () => number): Rgb {
+  // One physical point can only carry one color.  Use a deterministic shared-space blend,
+  // but bias toward the more informative sample so Nubzuki blue/pink and goose orange/dark
+  // outlines survive instead of collapsing into a washed-out average.
+  const frontSignal = colorChroma(frontColor) * 1.45 + colorDarkness(frontColor) * 1.2;
+  const sideSignal = colorChroma(sideColor) * 1.25 + colorDarkness(sideColor) * 0.9;
+  const frontWeight = THREE.MathUtils.clamp(0.48 + (frontSignal - sideSignal) * 0.42, 0.24, 0.76);
+  const jitter = (rand() - 0.5) * 0.045;
+  const w = THREE.MathUtils.clamp(frontWeight + jitter, 0.22, 0.78);
+  const gamma = 1.35;
+  const mix = (a: number, b: number) => Math.pow(Math.pow(a, gamma) * w + Math.pow(b, gamma) * (1 - w), 1 / gamma);
+  const r = mix(frontColor[0], sideColor[0]);
+  const g = mix(frontColor[1], sideColor[1]);
+  const b = mix(frontColor[2], sideColor[2]);
+  const boost = 1.07;
+  return [Math.min(1, r * boost), Math.min(1, g * boost), Math.min(1, b * boost)];
 }
 
 function generateSharedPointCloud(front: MaskRows, side: MaskRows): GeneratedCloud {
@@ -303,35 +371,24 @@ function generateSharedPointCloud(front: MaskRows, side: MaskRows): GeneratedClo
   let frontUsed = 0;
   let sideUsed = 0;
 
-  const colorA = new THREE.Color('#7dd3fc');
-  const colorB = new THREE.Color('#f472b6');
-  const colorC = new THREE.Color('#facc15');
-  const colorD = new THREE.Color('#ffffff');
-  const mixed = new THREE.Color();
-
   for (let row = 0; row < ROW_COUNT; row += 1) {
-    const xs = [...front.rows[row]];
-    const zs = [...side.rows[row]];
-    if (xs.length === 0 || zs.length === 0) continue;
-    shuffleInPlace(xs, rand);
-    shuffleInPlace(zs, rand);
-    const count = Math.max(xs.length, zs.length);
+    const frontSamples = [...front.rows[row]];
+    const sideSamples = [...side.rows[row]];
+    if (frontSamples.length === 0 || sideSamples.length === 0) continue;
+    shuffleInPlace(frontSamples, rand);
+    shuffleInPlace(sideSamples, rand);
+    const count = Math.max(frontSamples.length, sideSamples.length);
     if (count <= 0) continue;
     rowsUsed += 1;
     const y = rowToY(row);
     for (let i = 0; i < count; i += 1) {
-      const x = xs[i % xs.length];
-      const z = -zs[i % zs.length];
+      const frontSample = frontSamples[i % frontSamples.length];
+      const sideSample = sideSamples[i % sideSamples.length];
+      const x = frontSample.coord;
+      const z = -sideSample.coord;
       positions.push(x, y, z);
-      const tint = 0.58 + 0.34 * rand();
-      const xNorm = x / POINT_SCALE_X + 0.5;
-      const zNorm = -z / POINT_SCALE_Z + 0.5;
-      const yNorm = y / POINT_SCALE_Y + 0.5;
-      mixed.copy(colorA).lerp(colorB, zNorm);
-      mixed.lerp(colorC, Math.max(0, 0.35 - Math.abs(xNorm - 0.18)) * 0.75);
-      mixed.lerp(colorD, Math.max(0, yNorm - 0.58) * 0.28);
-      mixed.multiplyScalar(tint);
-      colors.push(mixed.r, mixed.g, mixed.b);
+      const [r, g, b] = blendReferenceColors(frontSample.color, sideSample.color, rand);
+      colors.push(r, g, b);
       frontUsed += 1;
       sideUsed += 1;
     }
@@ -351,6 +408,7 @@ function generateSharedPointCloud(front: MaskRows, side: MaskRows): GeneratedClo
       projectionOnlyPointCount: 0,
       noProjectionOnlyPoints: true,
       backgroundNoisePolicy: 'no projection-only points; every rendered point must be paired from front and side masks',
+      colorPolicy: 'fixed per-point RGB sampled from both reference images and blended in shared space',
     },
   };
 }
@@ -484,6 +542,7 @@ function buildLenticularQa(): LenticularQa {
     }),
     visualStyle: Object.freeze({
       colorSource: 'fixed-per-point-attribute',
+      colorPolicy: 'reference-rgb-shared-blend',
       shaderGlowOnly: true,
       viewDependentOpacityGate: false,
       depthTestReadingGate: false,
@@ -607,7 +666,7 @@ requestAnimationFrame(animate);
 
 const qa = window.__LENTICULAR_QA__;
 errorMetric.textContent = `same points: ${cloud.stats.points.toLocaleString()} / matched rows: ${cloud.stats.rowsUsed}/${cloud.stats.rowCount} / active-row overlap: ${(cloud.stats.rowBalance.matchedRowRatio * 100).toFixed(1)}% / row density min-med-max: ${cloud.stats.rowBalance.generatedPointsPerMatchedRow.min}-${cloud.stats.rowBalance.generatedPointsPerMatchedRow.median}-${cloud.stats.rowBalance.generatedPointsPerMatchedRow.max} / coverage F/S: ${(cloud.stats.frontCoverage * 100).toFixed(1)}%/${(cloud.stats.sideCoverage * 100).toFixed(1)}%`;
-invariantQaMetric.textContent = `Physical cloud: ${qa.scenePointsCount} THREE.Points object using 1 shared BufferGeometry (${qa.geometryAttributes.names.join(' + ')} attributes, count=${qa.pointCount.toLocaleString()}). Row QA: active rows F/S/M=${qa.rowBalance.activeRows.front}/${qa.rowBalance.activeRows.side}/${qa.rowBalance.activeRows.matched}; drops F-only/S-only/empty=${qa.rowBalance.rowMismatches.frontOnly}/${qa.rowBalance.rowMismatches.sideOnly}/${qa.rowBalance.rowMismatches.emptyBoth}; sampled active pixels F/S=${qa.rowBalance.activePixels.front.toLocaleString()}/${qa.rowBalance.activePixels.side.toLocaleString()}. Shared-space QA: projectionCount=${qa.projectionCount}, projectionOnlyPointCount=${qa.projectionOnlyPointCount}, noProjectionOnlyPoints=${qa.noProjectionOnlyPoints}; policy=${qa.backgroundNoisePolicy}. Style QA: ${qa.visualStyle.colorSource}, shaderGlowOnly=${qa.visualStyle.shaderGlowOnly}, viewOpacityGate=${qa.visualStyle.viewDependentOpacityGate}, depthGate=${qa.visualStyle.depthTestReadingGate}. Helper axes/grid may have their own line geometries, but they are not point sets. Point-cloud invariant: ${qa.pointCloudInvariantHolds ? 'PASS' : 'FAIL'}.`;
+invariantQaMetric.textContent = `Physical cloud: ${qa.scenePointsCount} THREE.Points object using 1 shared BufferGeometry (${qa.geometryAttributes.names.join(' + ')} attributes, count=${qa.pointCount.toLocaleString()}). Row QA: active rows F/S/M=${qa.rowBalance.activeRows.front}/${qa.rowBalance.activeRows.side}/${qa.rowBalance.activeRows.matched}; drops F-only/S-only/empty=${qa.rowBalance.rowMismatches.frontOnly}/${qa.rowBalance.rowMismatches.sideOnly}/${qa.rowBalance.rowMismatches.emptyBoth}; sampled active pixels F/S=${qa.rowBalance.activePixels.front.toLocaleString()}/${qa.rowBalance.activePixels.side.toLocaleString()}. Shared-space QA: projectionCount=${qa.projectionCount}, projectionOnlyPointCount=${qa.projectionOnlyPointCount}, noProjectionOnlyPoints=${qa.noProjectionOnlyPoints}; policy=${qa.backgroundNoisePolicy}; colorPolicy=${qa.visualStyle.colorPolicy}. Style QA: ${qa.visualStyle.colorSource}, shaderGlowOnly=${qa.visualStyle.shaderGlowOnly}, viewOpacityGate=${qa.visualStyle.viewDependentOpacityGate}, depthGate=${qa.visualStyle.depthTestReadingGate}. Helper axes/grid may have their own line geometries, but they are not point sets. Point-cloud invariant: ${qa.pointCloudInvariantHolds ? 'PASS' : 'FAIL'}.`;
 setView('front');
 
 (document.querySelector('#shotBtn') as HTMLButtonElement).onclick = () => {
