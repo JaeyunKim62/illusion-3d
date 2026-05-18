@@ -129,7 +129,7 @@ app.innerHTML = `
         <button id="recordBtn">10초 WebM 녹화</button>
       </div>
       <p class="hint" id="overlayHelp">Orthographic canonical views only: no opacity gating, no second point set, no hidden duplicate text. Rotate/reveal to inspect the single physical point cloud.</p>
-      <p class="capture-status" id="captureStatus" role="status">Capture ready. Use Front/Right before PNG capture, or record a 10s rotation.</p>
+      <p class="capture-status" id="captureStatus" role="status">Capture ready. Use Front/Right before PNG capture, or record the 10s +X → −Z → 45° overhead reveal path.</p>
       <section class="score-card"><h2>Invariant QA</h2><p class="qa-metric" id="invariantQaMetric">checking physical point-set invariant…</p></section>
       <section class="score-card"><h2>수학적 정의</h2><ul><li>점 하나: <code>p=(x,y,z)</code></li><li>Front +Z projection: <code>πZ(p)=(x,y)</code> → goose reference mask</li><li>Right +X projection: <code>πX(p)=(z,y)</code> → nubzuki reference mask</li><li>Back/Left는 같은 점의 좌우반전 projection</li></ul></section>
       <section class="score-card"><h2>색/빛 단계</h2><ul><li>Geometry는 그대로 하나의 <code>BufferGeometry</code>입니다.</li><li>각 점은 고정된 per-point color attribute를 가집니다.</li><li>cyan→magenta→gold palette와 radial glow shader만 추가했고, view별 geometry/opacity gate는 추가하지 않았습니다.</li></ul></section>
@@ -585,7 +585,11 @@ const invariantQaMetric = document.querySelector('#invariantQaMetric')!;
 let viewMode: ViewMode = 'front';
 let playing = false;
 let start = 0;
-let autoTheta = 0;
+const recordingCamera = {
+  right: new THREE.Vector3(6, 0, 0),
+  back: new THREE.Vector3(0, 0, -6),
+  overheadReveal: new THREE.Vector3(4.8, 4.8, -4.8),
+};
 
 const viewDefs: Record<ViewMode, { pos: THREE.Vector3; label: string; detail: string; badge: string; grid: boolean }> = {
   front: { pos: new THREE.Vector3(0, 0, 6), label: 'FRONT +Z', detail: 'same points project (x,y) to goose reference image', badge: 'GOOSE', grid: false },
@@ -598,9 +602,46 @@ const viewDefs: Record<ViewMode, { pos: THREE.Vector3; label: string; detail: st
 
 function setCameraTo(position: THREE.Vector3) {
   camera.position.copy(position);
+  camera.zoom = 1;
+  camera.updateProjectionMatrix();
   camera.lookAt(0, 0, 0);
   controls.target.set(0, 0, 0);
   controls.update();
+}
+
+function smoothStep01(t: number) {
+  const x = THREE.MathUtils.clamp(t, 0, 1);
+  return x * x * (3 - 2 * x);
+}
+
+function updateRecordingCamera(t: number) {
+  const position = new THREE.Vector3();
+  let zoom = 1;
+  if (t < 0.24) {
+    position.copy(recordingCamera.right);
+    viewBadge.textContent = 'NUBZUKI';
+    phaseDetail.textContent = 'start at Right +X: same points form the colored Nubzuki image';
+  } else if (t < 0.52) {
+    const local = smoothStep01((t - 0.24) / 0.28);
+    position.lerpVectors(recordingCamera.right, recordingCamera.back, local);
+    viewBadge.textContent = 'NUBZUKI → mirrored GOOSE';
+    phaseDetail.textContent = 'quick move from +X to −Z while keeping the single cloud visible';
+  } else if (t < 0.74) {
+    position.copy(recordingCamera.back);
+    viewBadge.textContent = 'mirrored GOOSE';
+    phaseDetail.textContent = 'brief −Z reading before the camera escapes upward';
+  } else {
+    const local = smoothStep01((t - 0.74) / 0.26);
+    position.lerpVectors(recordingCamera.back, recordingCamera.overheadReveal, local);
+    zoom = THREE.MathUtils.lerp(1, 0.68, local);
+    viewBadge.textContent = '45° overhead reveal';
+    phaseDetail.textContent = 'pull away upward to show the full distorted 3D point structure';
+  }
+  camera.position.copy(position);
+  camera.zoom = zoom;
+  camera.updateProjectionMatrix();
+  camera.lookAt(0, 0, 0);
+  controls.target.set(0, 0, 0);
 }
 
 function updateUi() {
@@ -645,18 +686,8 @@ function animate(now: number) {
   requestAnimationFrame(animate);
   if (playing) {
     const t = Math.min(1, (now - start) / 10_000);
-    autoTheta = t * Math.PI * 2;
-    const radius = 6;
-    camera.position.set(Math.sin(autoTheta) * radius, 0.35 + Math.sin(t * Math.PI) * 1.5, Math.cos(autoTheta) * radius);
-    camera.lookAt(0, 0, 0);
-    controls.target.set(0, 0, 0);
-    const deg = ((autoTheta * 180) / Math.PI) % 360;
-    phaseLabel.textContent = '10s ROTATION';
-    if (deg < 45 || deg > 315) viewBadge.textContent = 'GOOSE';
-    else if (deg > 45 && deg < 135) viewBadge.textContent = 'NUBZUKI';
-    else if (deg > 135 && deg < 225) viewBadge.textContent = 'mirrored GOOSE';
-    else viewBadge.textContent = 'mirrored NUBZUKI';
-    phaseDetail.textContent = 'same cloud rotating through front/right/back/left projections';
+    phaseLabel.textContent = '10s VIEWER PATH';
+    updateRecordingCamera(t);
     if (t >= 1) setView('front');
   }
   if (controls.enabled) controls.update();
@@ -698,7 +729,7 @@ recordBtn.onclick = () => {
   recordBtn.disabled = true;
   recordBtn.classList.add('is-recording');
   recordBtn.textContent = 'Recording 10s…';
-  captureStatus.textContent = 'Recording 10s rotation from the single shared point cloud.';
+  captureStatus.textContent = 'Recording 10s path: Right +X Nubzuki → Back −Z mirrored goose → 45° overhead structure reveal.';
   recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
   recorder.onstop = () => {
     window.clearTimeout(stopTimer);
@@ -719,6 +750,11 @@ recordBtn.onclick = () => {
   viewMode = 'reveal';
   controls.enabled = false;
   updateUi();
+  axesGroup.visible = true;
+  camera.position.copy(recordingCamera.right);
+  camera.zoom = 1;
+  camera.updateProjectionMatrix();
+  camera.lookAt(0, 0, 0);
   playing = true;
   start = performance.now();
   track?.requestFrame?.();
