@@ -39,3 +39,19 @@
 - Commit: `edd9f67 chore: add lenticular row qa metrics`.
 - Next step: use the new row/density metrics to tune legibility or add a semi-automated orthographic capture/evaluation helper in a separate bounded slice.
 
+## Tick 3/6 — reference-image color/light polish and style QA
+
+- Slice: backlog #5 with documentation/QA from #1/#2, fixed per-point color/glow polish for the current reference-image two-view cloud while preserving the shared-cloud invariant.
+- Starting state note: live branch was `reference-image-two-view`, not the plan header's `lenticular-shared-point-cloud`; the working tree already contained reference-image goose/nubzuki changes, so this tick finished and verified that coherent slice rather than switching branches destructively.
+- Changed files: `src/main.ts`, `README.md`, `index.html`, `artifacts/reference-image-two-view/front-goose-color.png`, `artifacts/reference-image-two-view/right-nubzuki-color.png`, `artifacts/lenticular-color-light-tick3-20260518T011500Z/front-goose-color-light-page.png`, `artifacts/lenticular-color-light-tick3-20260518T011500Z/right-nubzuki-color-light-page.png`, `artifacts/lenticular-color-light-tick3-20260518T011500Z/browser-qa-summary.json`, `artifacts/final-qa-20260518T010313Z.json`, `artifacts/final-qa-20260518T012043Z.json`, `artifacts/final-qa-20260518T012223Z.json`.
+- Implemented: smaller/tighter orthographic framing, fixed per-point cyan/magenta/gold/white color attributes, radial glow shader polish, visible/console `visualStyle` QA flags, README/index updates from stale text labels to goose/nubzuki reference-image projections, and Tick 3 browser evidence in a unique artifact directory.
+- Invariant status: physical cloud remains one `THREE.Points` object backed by one shared `THREE.BufferGeometry` with `position` + `color` attributes; no separate text meshes, duplicate point clouds, per-view hidden layers, or view-dependent opacity/depth-test reading gates added.
+- Verification:
+  - `npm run build` PASS; only known Vite/Three.js chunk-size warning.
+  - `npm run qa:submission` PASS; latest report `artifacts/final-qa-20260518T012223Z.json`.
+  - `git diff --check` PASS, with only Git LF→CRLF working-copy warnings.
+  - Browser QA available: front view visually read as the goose reference; right view visually read as the nubzuki reference; browser console had no JS errors; `window.__LENTICULAR_QA__` reported `scenePointsCount: 1`, `pointCloudInvariantHolds: true`, `visualStyle.colorSource: fixed-per-point-attribute`, `viewDependentOpacityGate: false`, `depthTestReadingGate: false`.
+  - Spec/quality review initially requested README/index stale-label fixes; focused re-review then returned PASS/APPROVED.
+- Commit: `9bef0bd feat: polish lenticular reference image cloud`.
+- Next step: update `writeup/writeup.md`/`project_proposal.md` to describe the new goose/nubzuki shared point-cloud direction, or add an automated orthographic capture/evaluation helper for front/right evidence.
+
