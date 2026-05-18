@@ -105,13 +105,13 @@ const SUB_ROW_JITTER_SCALE = 0.42;
 const POINT_SIZE_JITTER = 0.10;
 const FRONT_SPEC: MaskSpec = {
   name: 'Front +Z',
-  label: 'GOOSE',
-  imageUrl: '/artifacts/reference-image/goose.png',
+  label: 'NUBZUKI',
+  imageUrl: '/artifacts/reference-image/nubzuki.png',
 };
 const SIDE_SPEC: MaskSpec = {
   name: 'Right +X',
-  label: 'NUBZUKI',
-  imageUrl: '/artifacts/reference-image/cake.png',
+  label: 'KUMDORI',
+  imageUrl: '/artifacts/reference-image/kumdori.png',
 };
 const RNG_SEED = 4792026;
 
@@ -120,23 +120,23 @@ app.innerHTML = `
     <section class="viewer-card">
       <canvas id="scene" aria-label="Shared 3D lenticular point cloud viewer"></canvas>
       <div class="hud">
-        <div><b id="phaseLabel">FRONT +Z</b><span id="phaseDetail">same points project to GOOSE reference image</span></div>
+        <div><b id="phaseLabel">FRONT +Z</b><span id="phaseDetail">same points project to ${FRONT_SPEC.label} reference image</span></div>
         <div class="metric" id="errorMetric">generating shared point cloud…</div>
       </div>
-      <div class="view-badge" id="viewBadge">GOOSE</div>
+      <div class="view-badge" id="viewBadge">${FRONT_SPEC.label}</div>
       <div class="story-strip" aria-hidden="true">
         <span><b>1</b> one shared BufferGeometry</span>
-        <span><b>2</b> front projection: x,y → goose image</span>
-        <span><b>3</b> side projection: z,y → nubzuki image</span>
+        <span><b>2</b> front projection: x,y → ${FRONT_SPEC.label.toLowerCase()} image</span>
+        <span><b>3</b> side projection: z,y → ${SIDE_SPEC.label.toLowerCase()} image</span>
       </div>
     </section>
     <aside class="panel">
       <p class="eyebrow">KAIST 3D Rendering Contest / 3D Lenticular Point Cloud</p>
       <h1>One Cloud, Multiple Readings</h1>
-      <p class="lead">이 브랜치는 글자 대신 <code>artifacts/reference-image</code>의 두 참조 이미지를 사용합니다. 두 이미지는 별도 billboard가 아니라 <b>동일한 점 하나하나</b>의 좌표 <code>(x,y,z)</code>를 공유합니다. 정면 정사영은 <code>(x,y)</code>로 <b>goose</b>, 우측 정사영은 <code>(z,y)</code>로 <b>nubzuki</b> 이미지를 형성합니다.</p>
+      <p class="lead">이 브랜치는 글자 대신 <code>artifacts/reference-image</code>의 두 참조 이미지를 사용합니다. 두 이미지는 별도 billboard가 아니라 <b>동일한 점 하나하나</b>의 좌표 <code>(x,y,z)</code>를 공유합니다. 정면 정사영은 <code>(x,y)</code>로 <b>${FRONT_SPEC.label.toLowerCase()}</b>, 우측 정사영은 <code>(z,y)</code>로 <b>${SIDE_SPEC.label.toLowerCase()}</b> 이미지를 형성합니다.</p>
       <div class="actions">
-        <button id="frontBtn" data-mode="front">Front +Z: goose</button>
-        <button id="rightBtn" data-mode="right">Right +X: nubzuki</button>
+        <button id="frontBtn" data-mode="front">Front +Z: ${FRONT_SPEC.label.toLowerCase()}</button>
+        <button id="rightBtn" data-mode="right">Right +X: ${SIDE_SPEC.label.toLowerCase()}</button>
         <button id="backBtn" data-mode="back">Back −Z: mirrored A</button>
         <button id="leftBtn" data-mode="left">Left −X: mirrored B</button>
         <button id="revealBtn" data-mode="reveal">3D reveal</button>
@@ -147,7 +147,7 @@ app.innerHTML = `
       <p class="hint" id="overlayHelp">Orthographic canonical views only: no opacity gating, no second point set, no hidden duplicate text. Rotate/reveal to inspect the single physical point cloud.</p>
       <p class="capture-status" id="captureStatus" role="status">Capture ready. Use Front/Right before PNG capture, or record the 10s +X → −Z → 45° overhead reveal path.</p>
       <section class="score-card"><h2>Invariant QA</h2><p class="qa-metric" id="invariantQaMetric">checking physical point-set invariant…</p></section>
-      <section class="score-card"><h2>수학적 정의</h2><ul><li>점 하나: <code>p=(x,y,z)</code></li><li>Front +Z projection: <code>πZ(p)=(x,y)</code> → goose reference mask</li><li>Right +X projection: <code>πX(p)=(z,y)</code> → nubzuki reference mask</li><li>Back/Left는 같은 점의 좌우반전 projection</li></ul></section>
+      <section class="score-card"><h2>수학적 정의</h2><ul><li>점 하나: <code>p=(x,y,z)</code></li><li>Front +Z projection: <code>πZ(p)=(x,y)</code> → ${FRONT_SPEC.label.toLowerCase()} reference mask</li><li>Right +X projection: <code>πX(p)=(z,y)</code> → ${SIDE_SPEC.label.toLowerCase()} reference mask</li><li>Back/Left는 같은 점의 좌우반전 projection</li></ul></section>
       <section class="score-card"><h2>색/빛 단계</h2><ul><li>Geometry는 그대로 하나의 <code>BufferGeometry</code>입니다.</li><li>각 점은 두 참조 이미지의 endpoint RGB(<code>frontColor</code>/<code>sideColor</code>)를 보관합니다.</li><li>shader가 카메라 각도에 따라 <code>cosine_s1</code> directional color를 계산합니다. Geometry/opacity/texture gate는 추가하지 않았습니다.</li></ul></section>
       <section class="score-card"><h2>우선 규정</h2><ul>${contestRules.map((r) => `<li><b>${r.title}</b> — ${r.implementationPolicy}</li>`).join('')}</ul></section>
     </aside>
@@ -599,10 +599,10 @@ const recordingCamera = {
 };
 
 const viewDefs: Record<ViewMode, { pos: THREE.Vector3; label: string; detail: string; badge: string; grid: boolean }> = {
-  front: { pos: new THREE.Vector3(0, 0, 6), label: 'FRONT +Z', detail: 'same points project (x,y) to goose reference image', badge: 'GOOSE', grid: false },
-  right: { pos: new THREE.Vector3(6, 0, 0), label: 'RIGHT +X', detail: 'same points project (z,y) to nubzuki reference image', badge: 'NUBZUKI', grid: false },
-  back: { pos: new THREE.Vector3(0, 0, -6), label: 'BACK −Z', detail: 'same points, mirrored goose projection', badge: 'mirror: GOOSE', grid: false },
-  left: { pos: new THREE.Vector3(-6, 0, 0), label: 'LEFT −X', detail: 'same points, mirrored nubzuki projection', badge: 'mirror: NUBZUKI', grid: false },
+  front: { pos: new THREE.Vector3(0, 0, 6), label: 'FRONT +Z', detail: `same points project (x,y) to ${FRONT_SPEC.label.toLowerCase()} reference image`, badge: FRONT_SPEC.label, grid: false },
+  right: { pos: new THREE.Vector3(6, 0, 0), label: 'RIGHT +X', detail: `same points project (z,y) to ${SIDE_SPEC.label.toLowerCase()} reference image`, badge: SIDE_SPEC.label, grid: false },
+  back: { pos: new THREE.Vector3(0, 0, -6), label: 'BACK −Z', detail: `same points, mirrored ${FRONT_SPEC.label.toLowerCase()} projection`, badge: `mirror: ${FRONT_SPEC.label}`, grid: false },
+  left: { pos: new THREE.Vector3(-6, 0, 0), label: 'LEFT −X', detail: `same points, mirrored ${SIDE_SPEC.label.toLowerCase()} projection`, badge: `mirror: ${SIDE_SPEC.label}`, grid: false },
   reveal: { pos: new THREE.Vector3(4.6, 2.1, 5.1), label: '3D REVEAL', detail: 'the physical cloud is neither flat image by itself', badge: 'single 3D point cloud', grid: true },
   orbit: { pos: new THREE.Vector3(4.6, 2.1, 5.1), label: 'ORBIT', detail: 'drag to inspect the one shared point set', badge: 'free orbit', grid: true },
 };
@@ -658,8 +658,8 @@ function updateRecordingCamera(t: number) {
     position.copy(recordingCamera.right);
     zoom = THREE.MathUtils.lerp(1.0, 1.12, local);
     axesGroup.visible = false;
-    viewBadge.textContent = 'NUBZUKI';
-    phaseDetail.textContent = 'clean +X hold with a tiny push-in so Nubzuki reads before motion';
+    viewBadge.textContent = SIDE_SPEC.label;
+    phaseDetail.textContent = `clean +X hold with a tiny push-in so ${SIDE_SPEC.label} reads before motion`;
   } else if (t < 0.25) {
     const local = smoothStep01((t - 0.18) / 0.07);
     position.copy(recordingCamera.right);
@@ -675,14 +675,14 @@ function updateRecordingCamera(t: number) {
     position.set(Math.cos(theta) * radius, lift, -Math.sin(theta) * radius);
     zoom = THREE.MathUtils.lerp(1.04, 0.98, local);
     axesGroup.visible = true;
-    viewBadge.textContent = 'NUBZUKI → GOOSE';
+    viewBadge.textContent = `${SIDE_SPEC.label} → ${FRONT_SPEC.label}`;
     phaseDetail.textContent = 'same smooth quarter-arc from +X to −Z, with x/z depth parallax exposed';
   } else if (t < 0.64) {
     const local = smoothStep01((t - 0.50) / 0.14);
     position.copy(recordingCamera.back);
     zoom = THREE.MathUtils.lerp(0.98, 1.0, local);
     axesGroup.visible = false;
-    viewBadge.textContent = 'mirrored GOOSE';
+    viewBadge.textContent = `mirrored ${FRONT_SPEC.label}`;
     phaseDetail.textContent = 'second clean hold at −Z before the escape upward';
   } else if (t < 0.82) {
     const local = easeInOutCubic((t - 0.64) / 0.18);
@@ -793,7 +793,7 @@ recordBtn.onclick = () => {
   recordBtn.disabled = true;
   recordBtn.classList.add('is-recording');
   recordBtn.textContent = 'Recording 10s…';
-  captureStatus.textContent = 'Recording 10s path: +X Nubzuki hold → smooth quarter-arc to −Z mirrored goose → no-cut crane-out and 45° overhead zoom reveal.';
+  captureStatus.textContent = 'Recording 10s path: +X side hold → smooth quarter-arc to −Z mirrored front → no-cut crane-out and 45° overhead zoom reveal.';
   recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
   recorder.onstop = () => {
     window.clearTimeout(stopTimer);
