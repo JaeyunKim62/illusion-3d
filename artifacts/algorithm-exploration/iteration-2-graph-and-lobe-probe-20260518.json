@@ -1,0 +1,705 @@
+{
+  "note": "research proxy; alpha-mask resized/normalized. 3-view graph uses real reference images but not production renderer.",
+  "graph_certificates": [
+    {
+      "front": "goose",
+      "side": "nubzuki",
+      "top": "phoenix",
+      "resolution": {
+        "x": 96,
+        "y": 80,
+        "z": 96
+      },
+      "front_active": 898,
+      "side_active": 1774,
+      "top_active": 4388,
+      "voxels_in_H": 12445,
+      "front_iou": 0.537862,
+      "side_iou": 0.494927,
+      "top_iou": 0.327256,
+      "missing_front": 415,
+      "missing_side": 896,
+      "missing_top": 2952,
+      "extra_front": 0,
+      "extra_side": 0,
+      "extra_top": 0,
+      "front_isolated_ratio": 0.0,
+      "side_isolated_ratio": 0.015784,
+      "unsupported_top_ratio": 0.672744,
+      "row_edge_count_p50": 343,
+      "row_edge_count_p95": 760,
+      "row_edge_count_max": 860,
+      "row_edge_density_mean": 0.88084,
+      "row_edge_density_p05": 0.666969,
+      "exact_pass_098": false
+    },
+    {
+      "front": "goose",
+      "side": "nubzuki",
+      "top": "kumdori",
+      "resolution": {
+        "x": 96,
+        "y": 80,
+        "z": 96
+      },
+      "front_active": 898,
+      "side_active": 1774,
+      "top_active": 4598,
+      "voxels_in_H": 14828,
+      "front_iou": 0.537862,
+      "side_iou": 0.51071,
+      "top_iou": 0.416485,
+      "missing_front": 415,
+      "missing_side": 868,
+      "missing_top": 2683,
+      "extra_front": 0,
+      "extra_side": 0,
+      "extra_top": 0,
+      "front_isolated_ratio": 0.0,
+      "side_isolated_ratio": 0.0,
+      "unsupported_top_ratio": 0.583515,
+      "row_edge_count_p50": 352,
+      "row_edge_count_p95": 986,
+      "row_edge_count_max": 1110,
+      "row_edge_density_mean": 0.998054,
+      "row_edge_density_p05": 0.980745,
+      "exact_pass_098": false
+    },
+    {
+      "front": "goose",
+      "side": "cake",
+      "top": "phoenix",
+      "resolution": {
+        "x": 96,
+        "y": 80,
+        "z": 96
+      },
+      "front_active": 898,
+      "side_active": 3583,
+      "top_active": 4388,
+      "voxels_in_H": 35335,
+      "front_iou": 0.92539,
+      "side_iou": 0.63885,
+      "top_iou": 0.458523,
+      "missing_front": 67,
+      "missing_side": 1294,
+      "missing_top": 2376,
+      "extra_front": 0,
+      "extra_side": 0,
+      "extra_top": 0,
+      "front_isolated_ratio": 0.0,
+      "side_isolated_ratio": 0.023165,
+      "unsupported_top_ratio": 0.541477,
+      "row_edge_count_p50": 612,
+      "row_edge_count_p95": 1453,
+      "row_edge_count_max": 1613,
+      "row_edge_density_mean": 0.870343,
+      "row_edge_density_p05": 0.730159,
+      "exact_pass_098": false
+    },
+    {
+      "front": "goose",
+      "side": "cake",
+      "top": "kumdori",
+      "resolution": {
+        "x": 96,
+        "y": 80,
+        "z": 96
+      },
+      "front_active": 898,
+      "side_active": 3583,
+      "top_active": 4598,
+      "voxels_in_H": 42434,
+      "front_iou": 0.92539,
+      "side_iou": 0.662015,
+      "top_iou": 0.537625,
+      "missing_front": 67,
+      "missing_side": 1211,
+      "missing_top": 2126,
+      "extra_front": 0,
+      "extra_side": 0,
+      "extra_top": 0,
+      "front_isolated_ratio": 0.0,
+      "side_isolated_ratio": 0.0,
+      "unsupported_top_ratio": 0.462375,
+      "row_edge_count_p50": 589,
+      "row_edge_count_p95": 1902,
+      "row_edge_count_max": 2113,
+      "row_edge_density_mean": 0.993705,
+      "row_edge_density_p05": 0.957143,
+      "exact_pass_098": false
+    }
+  ],
+  "directional_lobe_sweep": [
+    {
+      "basis": "normalized_cosine_power",
+      "sharpness": 1,
+      "endpoint_wrong_lobe_front": 0.0,
+      "endpoint_wrong_lobe_right": 0.0,
+      "linear_path_rmse": 0.031562,
+      "max_abs_linear_error": 0.044658,
+      "max_5deg_weight_jump": 0.08045,
+      "mean_5deg_weight_jump": 0.055556,
+      "max_accel": 0.011004,
+      "weights_0_30_45_60_90": [
+        [
+          0,
+          1.0,
+          0.0
+        ],
+        [
+          30,
+          0.634,
+          0.366
+        ],
+        [
+          45,
+          0.5,
+          0.5
+        ],
+        [
+          60,
+          0.366,
+          0.634
+        ],
+        [
+          90,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "basis": "normalized_cosine_power",
+      "sharpness": 2,
+      "endpoint_wrong_lobe_front": 0.0,
+      "endpoint_wrong_lobe_right": 0.0,
+      "linear_path_rmse": 0.073421,
+      "max_abs_linear_error": 0.105244,
+      "max_5deg_weight_jump": 0.086824,
+      "mean_5deg_weight_jump": 0.055556,
+      "max_accel": 0.014961,
+      "weights_0_30_45_60_90": [
+        [
+          0,
+          1.0,
+          0.0
+        ],
+        [
+          30,
+          0.75,
+          0.25
+        ],
+        [
+          45,
+          0.5,
+          0.5
+        ],
+        [
+          60,
+          0.25,
+          0.75
+        ],
+        [
+          90,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "basis": "normalized_cosine_power",
+      "sharpness": 4,
+      "endpoint_wrong_lobe_front": 0.0,
+      "endpoint_wrong_lobe_right": 0.0,
+      "linear_path_rmse": 0.15984,
+      "max_abs_linear_error": 0.233333,
+      "max_5deg_weight_jump": 0.168565,
+      "mean_5deg_weight_jump": 0.055556,
+      "max_accel": 0.043837,
+      "weights_0_30_45_60_90": [
+        [
+          0,
+          1.0,
+          0.0
+        ],
+        [
+          30,
+          0.9,
+          0.1
+        ],
+        [
+          45,
+          0.5,
+          0.5
+        ],
+        [
+          60,
+          0.1,
+          0.9
+        ],
+        [
+          90,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "basis": "normalized_cosine_power",
+      "sharpness": 8,
+      "endpoint_wrong_lobe_front": 0.0,
+      "endpoint_wrong_lobe_right": 0.0,
+      "linear_path_rmse": 0.216266,
+      "max_abs_linear_error": 0.334261,
+      "max_5deg_weight_jump": 0.302724,
+      "mean_5deg_weight_jump": 0.055556,
+      "max_accel": 0.160076,
+      "weights_0_30_45_60_90": [
+        [
+          0,
+          1.0,
+          0.0
+        ],
+        [
+          30,
+          0.9878,
+          0.0122
+        ],
+        [
+          45,
+          0.5,
+          0.5
+        ],
+        [
+          60,
+          0.0122,
+          0.9878
+        ],
+        [
+          90,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "basis": "normalized_cosine_power",
+      "sharpness": 16,
+      "endpoint_wrong_lobe_front": 0.0,
+      "endpoint_wrong_lobe_right": 0.0,
+      "linear_path_rmse": 0.246995,
+      "max_abs_linear_error": 0.387487,
+      "max_5deg_weight_jump": 0.443043,
+      "mean_5deg_weight_jump": 0.055556,
+      "max_accel": 0.389414,
+      "weights_0_30_45_60_90": [
+        [
+          0,
+          1.0,
+          0.0
+        ],
+        [
+          30,
+          0.9998,
+          0.0002
+        ],
+        [
+          45,
+          0.5,
+          0.5
+        ],
+        [
+          60,
+          0.0002,
+          0.9998
+        ],
+        [
+          90,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "basis": "angular_gaussian",
+      "temperature": 0.25,
+      "endpoint_wrong_lobe_front": 0.0,
+      "endpoint_wrong_lobe_right": 0.0,
+      "linear_path_rmse": 0.238431,
+      "max_abs_linear_error": 0.376598,
+      "max_5deg_weight_jump": 0.399641,
+      "mean_5deg_weight_jump": 0.055556,
+      "max_accel": 0.311574,
+      "weights_0_30_45_60_90": [
+        [
+          0,
+          1.0,
+          0.0
+        ],
+        [
+          30,
+          0.9986,
+          0.0014
+        ],
+        [
+          45,
+          0.5,
+          0.5
+        ],
+        [
+          60,
+          0.0014,
+          0.9986
+        ],
+        [
+          90,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "basis": "angular_gaussian",
+      "temperature": 0.35,
+      "endpoint_wrong_lobe_front": 4.2e-05,
+      "endpoint_wrong_lobe_right": 4.2e-05,
+      "linear_path_rmse": 0.198985,
+      "max_abs_linear_error": 0.299667,
+      "max_5deg_weight_jump": 0.253804,
+      "mean_5deg_weight_jump": 0.055551,
+      "max_accel": 0.103997,
+      "weights_0_30_45_60_90": [
+        [
+          0,
+          1.0,
+          0.0
+        ],
+        [
+          30,
+          0.9663,
+          0.0337
+        ],
+        [
+          45,
+          0.5,
+          0.5
+        ],
+        [
+          60,
+          0.0337,
+          0.9663
+        ],
+        [
+          90,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "basis": "angular_gaussian",
+      "temperature": 0.5,
+      "endpoint_wrong_lobe_front": 0.007141,
+      "endpoint_wrong_lobe_right": 0.007141,
+      "linear_path_rmse": 0.121161,
+      "max_abs_linear_error": 0.177419,
+      "max_5deg_weight_jump": 0.133744,
+      "mean_5deg_weight_jump": 0.054762,
+      "max_accel": 0.027305,
+      "weights_0_30_45_60_90": [
+        [
+          0,
+          0.9929,
+          0.0071
+        ],
+        [
+          30,
+          0.8382,
+          0.1618
+        ],
+        [
+          45,
+          0.5,
+          0.5
+        ],
+        [
+          60,
+          0.1618,
+          0.8382
+        ],
+        [
+          90,
+          0.0071,
+          0.9929
+        ]
+      ]
+    },
+    {
+      "basis": "angular_gaussian",
+      "temperature": 0.75,
+      "endpoint_wrong_lobe_front": 0.100359,
+      "endpoint_wrong_lobe_right": 0.100359,
+      "linear_path_rmse": 0.042712,
+      "max_abs_linear_error": 0.100359,
+      "max_5deg_weight_jump": 0.060624,
+      "mean_5deg_weight_jump": 0.044405,
+      "max_accel": 0.005655,
+      "weights_0_30_45_60_90": [
+        [
+          0,
+          0.8996,
+          0.1004
+        ],
+        [
+          30,
+          0.675,
+          0.325
+        ],
+        [
+          45,
+          0.5,
+          0.5
+        ],
+        [
+          60,
+          0.325,
+          0.675
+        ],
+        [
+          90,
+          0.1004,
+          0.8996
+        ]
+      ]
+    },
+    {
+      "basis": "angular_gaussian",
+      "temperature": 1.0,
+      "endpoint_wrong_lobe_front": 0.225534,
+      "endpoint_wrong_lobe_right": 0.225534,
+      "linear_path_rmse": 0.130851,
+      "max_abs_linear_error": 0.225534,
+      "max_5deg_weight_jump": 0.034216,
+      "mean_5deg_weight_jump": 0.030496,
+      "max_accel": 0.001757,
+      "weights_0_30_45_60_90": [
+        [
+          0,
+          0.7745,
+          0.2255
+        ],
+        [
+          30,
+          0.6014,
+          0.3986
+        ],
+        [
+          45,
+          0.5,
+          0.5
+        ],
+        [
+          60,
+          0.3986,
+          0.6014
+        ],
+        [
+          90,
+          0.2255,
+          0.7745
+        ]
+      ]
+    },
+    {
+      "basis": "softmax_cosine",
+      "temperature": 0.1,
+      "endpoint_wrong_lobe_front": 4.5e-05,
+      "endpoint_wrong_lobe_right": 4.5e-05,
+      "linear_path_rmse": 0.205922,
+      "max_abs_linear_error": 0.30987,
+      "max_5deg_weight_jump": 0.274268,
+      "mean_5deg_weight_jump": 0.055551,
+      "max_accel": 0.127554,
+      "weights_0_30_45_60_90": [
+        [
+          0,
+          1.0,
+          0.0
+        ],
+        [
+          30,
+          0.9749,
+          0.0251
+        ],
+        [
+          45,
+          0.5,
+          0.5
+        ],
+        [
+          60,
+          0.0251,
+          0.9749
+        ],
+        [
+          90,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "basis": "softmax_cosine",
+      "temperature": 0.15,
+      "endpoint_wrong_lobe_front": 0.001271,
+      "endpoint_wrong_lobe_right": 0.001271,
+      "linear_path_rmse": 0.169395,
+      "max_abs_linear_error": 0.253173,
+      "max_5deg_weight_jump": 0.1946,
+      "mean_5deg_weight_jump": 0.055414,
+      "max_accel": 0.05986,
+      "weights_0_30_45_60_90": [
+        [
+          0,
+          0.9987,
+          0.0013
+        ],
+        [
+          30,
+          0.9198,
+          0.0802
+        ],
+        [
+          45,
+          0.5,
+          0.5
+        ],
+        [
+          60,
+          0.0802,
+          0.9198
+        ],
+        [
+          90,
+          0.0013,
+          0.9987
+        ]
+      ]
+    },
+    {
+      "basis": "softmax_cosine",
+      "temperature": 0.2,
+      "endpoint_wrong_lobe_front": 0.006693,
+      "endpoint_wrong_lobe_right": 0.006693,
+      "linear_path_rmse": 0.134585,
+      "max_abs_linear_error": 0.196001,
+      "max_5deg_weight_jump": 0.149373,
+      "mean_5deg_weight_jump": 0.054812,
+      "max_accel": 0.035744,
+      "weights_0_30_45_60_90": [
+        [
+          0,
+          0.9933,
+          0.0067
+        ],
+        [
+          30,
+          0.8618,
+          0.1382
+        ],
+        [
+          45,
+          0.5,
+          0.5
+        ],
+        [
+          60,
+          0.1382,
+          0.8618
+        ],
+        [
+          90,
+          0.0067,
+          0.9933
+        ]
+      ]
+    },
+    {
+      "basis": "softmax_cosine",
+      "temperature": 0.35,
+      "endpoint_wrong_lobe_front": 0.054313,
+      "endpoint_wrong_lobe_right": 0.054313,
+      "linear_path_rmse": 0.052711,
+      "max_abs_linear_error": 0.077085,
+      "max_5deg_weight_jump": 0.087142,
+      "mean_5deg_weight_jump": 0.049521,
+      "max_accel": 0.01212,
+      "weights_0_30_45_60_90": [
+        [
+          0,
+          0.9457,
+          0.0543
+        ],
+        [
+          30,
+          0.74,
+          0.26
+        ],
+        [
+          45,
+          0.5,
+          0.5
+        ],
+        [
+          60,
+          0.26,
+          0.74
+        ],
+        [
+          90,
+          0.0543,
+          0.9457
+        ]
+      ]
+    },
+    {
+      "basis": "softmax_cosine",
+      "temperature": 0.5,
+      "endpoint_wrong_lobe_front": 0.119203,
+      "endpoint_wrong_lobe_right": 0.119203,
+      "linear_path_rmse": 0.051617,
+      "max_abs_linear_error": 0.119203,
+      "max_5deg_weight_jump": 0.061318,
+      "mean_5deg_weight_jump": 0.042311,
+      "max_accel": 0.006365,
+      "weights_0_30_45_60_90": [
+        [
+          0,
+          0.8808,
+          0.1192
+        ],
+        [
+          30,
+          0.6753,
+          0.3247
+        ],
+        [
+          45,
+          0.5,
+          0.5
+        ],
+        [
+          60,
+          0.3247,
+          0.6753
+        ],
+        [
+          90,
+          0.1192,
+          0.8808
+        ]
+      ]
+    }
+  ]
+}

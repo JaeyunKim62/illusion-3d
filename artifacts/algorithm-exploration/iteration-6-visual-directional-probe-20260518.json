@@ -1,0 +1,136 @@
+{
+  "note": "throwaway iteration 6; production-like PIL extraction; no production files modified",
+  "extraction": {
+    "mask_width": 960,
+    "mask_height": 280,
+    "row_count": 190,
+    "alpha_threshold": 64,
+    "margin": 28
+  },
+  "row_pairing_visual_metrics": [
+    {
+      "front": "goose",
+      "side": "nubzuki",
+      "row_pairing": [
+        {
+          "policy": "current_shuffled_max_reuse",
+          "points": 11305,
+          "front_iou": 0.837755,
+          "side_iou": 0.79943,
+          "z_jump_mean": 33.935807,
+          "z_jump_p95": 89,
+          "z_jump_gt25_ratio": 0.518373,
+          "z_jump_gt50_ratio": 0.243898,
+          "normalized_total_variation_mean": 0.341521,
+          "direction_flip_ratio_mean": 0.657731,
+          "pair_color_conflict_mean": 0.422893,
+          "pair_color_conflict_p95": 0.81798
+        },
+        {
+          "policy": "quantile_max",
+          "points": 11305,
+          "front_iou": 0.837755,
+          "side_iou": 0.79943,
+          "z_jump_mean": 0.94582,
+          "z_jump_p95": 1,
+          "z_jump_gt25_ratio": 0.0,
+          "z_jump_gt50_ratio": 0.0,
+          "normalized_total_variation_mean": 0.012906,
+          "direction_flip_ratio_mean": 0.0,
+          "pair_color_conflict_mean": 0.39163,
+          "pair_color_conflict_p95": 0.681958
+        }
+      ]
+    },
+    {
+      "front": "goose",
+      "side": "cake",
+      "row_pairing": [
+        {
+          "policy": "current_shuffled_max_reuse",
+          "points": 20745,
+          "front_iou": 1.0,
+          "side_iou": 0.755999,
+          "z_jump_mean": 49.162516,
+          "z_jump_p95": 117,
+          "z_jump_gt25_ratio": 0.679287,
+          "z_jump_gt50_ratio": 0.427358,
+          "normalized_total_variation_mean": 0.338576,
+          "direction_flip_ratio_mean": 0.667049,
+          "pair_color_conflict_mean": 0.48018,
+          "pair_color_conflict_p95": 0.806436
+        },
+        {
+          "policy": "quantile_max",
+          "points": 20745,
+          "front_iou": 1.0,
+          "side_iou": 0.755999,
+          "z_jump_mean": 0.965681,
+          "z_jump_p95": 1,
+          "z_jump_gt25_ratio": 0.0,
+          "z_jump_gt50_ratio": 0.0,
+          "normalized_total_variation_mean": 0.00861,
+          "direction_flip_ratio_mean": 0.0,
+          "pair_color_conflict_mean": 0.480426,
+          "pair_color_conflict_p95": 0.810899
+        }
+      ]
+    }
+  ],
+  "directional_color_actual_pair_pop_metrics": {
+    "front": "goose",
+    "side": "nubzuki",
+    "policy": "quantile_max",
+    "metrics": {
+      "cosine_s1": {
+        "endpoint_rmse_mean": 0.0,
+        "linear_path_rmse_mean": 0.010745,
+        "max_5deg_step_rmse_mean": 0.031507,
+        "max_5deg_step_pair_p99": 0.071634,
+        "max_accel_rmse_mean": 0.00431,
+        "front_wrong_lobe_weight": 0.0,
+        "right_wrong_lobe_weight": 0.0
+      },
+      "cosine_s2": {
+        "endpoint_rmse_mean": 0.0,
+        "linear_path_rmse_mean": 0.025044,
+        "max_5deg_step_rmse_mean": 0.034003,
+        "max_5deg_step_pair_p99": 0.077309,
+        "max_accel_rmse_mean": 0.005859,
+        "front_wrong_lobe_weight": 0.0,
+        "right_wrong_lobe_weight": 0.0
+      },
+      "cosine_s8": {
+        "endpoint_rmse_mean": 0.0,
+        "linear_path_rmse_mean": 0.071455,
+        "max_5deg_step_rmse_mean": 0.118556,
+        "max_5deg_step_pair_p99": 0.269548,
+        "max_accel_rmse_mean": 0.062691,
+        "front_wrong_lobe_weight": 0.0,
+        "right_wrong_lobe_weight": 0.0
+      },
+      "softmax_tau035": {
+        "endpoint_rmse_mean": 0.021271,
+        "linear_path_rmse_mean": 0.018438,
+        "max_5deg_step_rmse_mean": 0.034127,
+        "max_5deg_step_pair_p99": 0.077592,
+        "max_accel_rmse_mean": 0.004747,
+        "front_wrong_lobe_weight": 0.054313,
+        "right_wrong_lobe_weight": 0.054313
+      },
+      "gaussian_sigma05": {
+        "endpoint_rmse_mean": 0.002796,
+        "linear_path_rmse_mean": 0.041162,
+        "max_5deg_step_rmse_mean": 0.052378,
+        "max_5deg_step_pair_p99": 0.119087,
+        "max_accel_rmse_mean": 0.010693,
+        "front_wrong_lobe_weight": 0.007141,
+        "right_wrong_lobe_weight": 0.007141
+      }
+    }
+  },
+  "contact_sheets": {
+    "row_pairing": "C:\\00_Codes\\illusion-3d\\artifacts\\algorithm-exploration\\iteration-6-row-pairing-contact-sheet-20260518.png",
+    "directional_color": "C:\\00_Codes\\illusion-3d\\artifacts\\algorithm-exploration\\iteration-6-directional-color-contact-sheet-20260518.png"
+  }
+}
