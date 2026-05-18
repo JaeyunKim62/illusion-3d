@@ -1,0 +1,20 @@
+{
+  "iteration": 6,
+  "experiment": "widen row spacing to test whether uniform separated bands are less noticeable",
+  "change": {
+    "POINT_SCALE_Y": 1.38,
+    "VIEW_HALF_HEIGHT": 1.64,
+    "baseline_POINT_SCALE_Y": 1.2,
+    "baseline_VIEW_HALF_HEIGHT": 1.48
+  },
+  "decision": "rejected as too wide",
+  "browserVisionVerdict": {
+    "front": "bands became more regular but more visually dominant; goose stayed readable but looked like separated horizontal slices",
+    "right": "nubzuki stayed readable but widened gaps made scanline artifacts more objectionable"
+  },
+  "evidence": {
+    "front": "artifacts/algorithm-implementation/front-rowspacing-wide-rejected-20260518.png",
+    "right": "artifacts/algorithm-implementation/right-rowspacing-wide-rejected-20260518.png"
+  },
+  "next": "try smaller intermediate row spacing instead of full 1.38 widening"
+}
