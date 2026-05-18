@@ -619,11 +619,6 @@ function easeInOutCubic(t: number) {
   return x < 0.5 ? 4 * x * x * x : 1 - ((-2 * x + 2) ** 3) / 2;
 }
 
-function easeOutCubic(t: number) {
-  const x = THREE.MathUtils.clamp(t, 0, 1);
-  return 1 - ((1 - x) ** 3);
-}
-
 function setRecordingPose(position: THREE.Vector3, zoom: number, target = new THREE.Vector3(0, 0, 0)) {
   camera.position.copy(position);
   camera.zoom = zoom;
@@ -645,48 +640,47 @@ function updateRecordingCamera(t: number) {
     viewBadge.textContent = 'NUBZUKI';
     phaseDetail.textContent = 'clean +X hold with a tiny push-in so Nubzuki reads before motion';
   } else if (t < 0.25) {
-    const local = easeOutCubic((t - 0.18) / 0.07);
-    const anticipation = new THREE.Vector3(5.85, 0.18, -0.82);
-    position.lerpVectors(recordingCamera.right, anticipation, local);
+    const local = smoothStep01((t - 0.18) / 0.07);
+    position.copy(recordingCamera.right);
     zoom = THREE.MathUtils.lerp(1.12, 1.04, local);
     axesGroup.visible = true;
     viewBadge.textContent = 'camera leaves +X';
-    phaseDetail.textContent = 'short anticipation drift starts the reveal without losing the first reading';
+    phaseDetail.textContent = 'no-cut breathing beat before the quarter-arc, keeping the Nubzuki pose locked';
   } else if (t < 0.50) {
     const local = easeInOutCubic((t - 0.25) / 0.25);
     const theta = local * Math.PI * 0.5;
-    const radius = THREE.MathUtils.lerp(6.05, 6.35, local);
+    const radius = 6;
     const lift = Math.sin(local * Math.PI) * 0.86;
     position.set(Math.cos(theta) * radius, lift, -Math.sin(theta) * radius);
-    zoom = THREE.MathUtils.lerp(1.04, 0.96, local);
+    zoom = THREE.MathUtils.lerp(1.04, 0.98, local);
     axesGroup.visible = true;
     viewBadge.textContent = 'NUBZUKI → GOOSE';
-    phaseDetail.textContent = 'fast quarter-arc: speed feels intentional and exposes x/z depth parallax';
+    phaseDetail.textContent = 'same smooth quarter-arc from +X to −Z, with x/z depth parallax exposed';
   } else if (t < 0.64) {
     const local = smoothStep01((t - 0.50) / 0.14);
     position.copy(recordingCamera.back);
-    zoom = THREE.MathUtils.lerp(1.03, 1.0, local);
+    zoom = THREE.MathUtils.lerp(0.98, 1.0, local);
     axesGroup.visible = false;
     viewBadge.textContent = 'mirrored GOOSE';
     phaseDetail.textContent = 'second clean hold at −Z before the escape upward';
-  } else if (t < 0.78) {
-    const local = easeInOutCubic((t - 0.64) / 0.14);
-    const preReveal = new THREE.Vector3(1.05, 2.25, -6.55);
-    position.lerpVectors(recordingCamera.back, preReveal, local);
-    zoom = THREE.MathUtils.lerp(1.0, 0.82, local);
-    target.y = THREE.MathUtils.lerp(0, 0.08, local);
+  } else if (t < 0.82) {
+    const local = easeInOutCubic((t - 0.64) / 0.18);
+    const craneReveal = new THREE.Vector3(0, 3.15, -7.15);
+    position.lerpVectors(recordingCamera.back, craneReveal, local);
+    zoom = THREE.MathUtils.lerp(1.0, 0.74, local);
+    target.y = THREE.MathUtils.lerp(0, 0.06, local);
     axesGroup.visible = true;
-    viewBadge.textContent = 'lift-off';
-    phaseDetail.textContent = 'delayed upward pull makes the flat reading break into a spatial cloud';
+    viewBadge.textContent = 'crane-out reveal';
+    phaseDetail.textContent = 'pull straight upward and outward first, so the flat −Z reading breaks into depth without a camera jump';
   } else {
-    const local = easeOutCubic((t - 0.78) / 0.22);
-    const preReveal = new THREE.Vector3(1.05, 2.25, -6.55);
-    position.lerpVectors(preReveal, recordingCamera.overheadReveal, local);
-    zoom = THREE.MathUtils.lerp(0.82, 0.56, local);
-    target.y = THREE.MathUtils.lerp(0.08, 0, local);
+    const local = easeInOutCubic((t - 0.82) / 0.18);
+    const craneReveal = new THREE.Vector3(0, 3.15, -7.15);
+    position.lerpVectors(craneReveal, recordingCamera.overheadReveal, local);
+    zoom = THREE.MathUtils.lerp(0.74, 0.54, local);
+    target.y = THREE.MathUtils.lerp(0.06, 0, local);
     axesGroup.visible = true;
     viewBadge.textContent = '45° overhead reveal';
-    phaseDetail.textContent = 'wide final three-quarter angle shows the full single distorted 3D point structure';
+    phaseDetail.textContent = 'slow diagonal drift after the crane-out gives the widest outside view of the single 3D point cloud';
   }
 
   setRecordingPose(position, zoom, target);
@@ -777,7 +771,7 @@ recordBtn.onclick = () => {
   recordBtn.disabled = true;
   recordBtn.classList.add('is-recording');
   recordBtn.textContent = 'Recording 10s…';
-  captureStatus.textContent = 'Recording 10s path: +X Nubzuki hold → fast arced move to −Z mirrored goose → delayed 45° overhead zoom-out reveal.';
+  captureStatus.textContent = 'Recording 10s path: +X Nubzuki hold → smooth quarter-arc to −Z mirrored goose → no-cut crane-out and 45° overhead zoom reveal.';
   recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
   recorder.onstop = () => {
     window.clearTimeout(stopTimer);
