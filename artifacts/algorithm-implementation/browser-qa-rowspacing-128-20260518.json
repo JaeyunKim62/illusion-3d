@@ -1,0 +1,36 @@
+{
+  "iteration": 7,
+  "experiment": "intermediate row spacing after rejected 1.38 widening",
+  "change": {
+    "POINT_SCALE_Y": 1.28,
+    "VIEW_HALF_HEIGHT": 1.54,
+    "SUB_ROW_JITTER_SCALE": 0.42,
+    "POINT_SIZE": 2.55,
+    "uAlpha": 0.72,
+    "POINT_SIZE_JITTER": 0.10
+  },
+  "decision": "keep",
+  "browserVisionVerdict": {
+    "front": "keep; more breathing room than 1.2 without the excessive row-separation salience of 1.38",
+    "right": "keep; side image remains readable and less comb-like than 1.38",
+    "reveal": "keep; one-cloud reveal preserved and intermediate spacing feels balanced"
+  },
+  "runtimeQa": {
+    "pointCount": 20797,
+    "projectionOnlyPointCount": 0,
+    "noProjectionOnlyPoints": true,
+    "scenePointsCount": 1,
+    "pointCloudUsesSharedGeometry": true,
+    "rowMaterializationPolicy": "quantile_max",
+    "colorPolicy": "cosine_s1-directional-color",
+    "pointCloudInvariantHolds": true,
+    "browserConsoleErrors": []
+  },
+  "evidence": {
+    "front": "artifacts/algorithm-implementation/front-rowspacing-128-20260518.png",
+    "right": "artifacts/algorithm-implementation/right-rowspacing-128-20260518.png",
+    "reveal": "artifacts/algorithm-implementation/reveal-rowspacing-128-20260518.png",
+    "metrics": "artifacts/algorithm-implementation/visual-metrics-iteration7-rowspacing-128-20260518.json"
+  },
+  "remainingWeakness": "horizontal banding remains visible; this is a balanced compromise, not a complete solution"
+}
