@@ -186,14 +186,24 @@ Observed quality:
 - Remaining visual weakness: horizontal row banding/scanline artifacts are still visible; side coverage remains about 75.7% due to unmatched side-only rows.
 - Rejected experiment: deterministic alpha jitter ±0.08 added visible mottled/speckled noise without reducing banding enough, so it was reverted; final state keeps deterministic point-size jitter only.
 
-## Next likely task
+## Current decision: freeze this viewer baseline
 
-If continuing polish, target the remaining banding/noise without breaking the invariant:
+The current 2-view viewer is sufficient as a stable demo baseline. Do not keep spending effort on row banding unless a later submission polish pass explicitly needs it.
 
-- try jittered sub-row y placement inside each row while preserving projection readability,
-- compare smaller splat size vs mild additive alpha,
-- add automated canonical image similarity metrics,
-- export a fresh final MP4 from the current color branch.
+- Keep current best tuning: `POINT_SCALE_Y=1.28`, `VIEW_HALF_HEIGHT=1.54`, `SUB_ROW_JITTER_SCALE=0.42`, `POINT_SIZE=2.65`, `uAlpha=0.68`, `POINT_SIZE_JITTER=0.10`.
+- Treat horizontal row banding as a known structural footprint of row-shared 2-view construction, not as an active blocker.
+- Final PNG/MP4 packaging can wait until closer to the submission deadline.
+- Preserve this branch as fallback before starting riskier concepts.
+
+## Next concept directions
+
+See `.hermes/plans/next-illusion-concepts-20260519.md` for the concise plan. Shortlist:
+
+1. Asset-search scorer for better 2-view/next-view candidates.
+2. One-direction lenticular motion: camera left/right or up/down changes the visible image.
+3. Designed 3-view support illusion with feasibility checks before rendering.
+4. Camera-driven animation illusion from 2-3 frames.
+5. Reveal/presentation fallback only near submission if needed.
 
 ## Previous suggested implementation approach for color
 

@@ -121,7 +121,18 @@ Physical cloud: 1 THREE.Points object using 1 shared BufferGeometry (...). Row Q
 
 ## Extension roadmap
 
-- 4-view: exact independent north/east/south/west images are over-constrained for one `(x,y,z)` point set. Implement approximate 4-view matching with more points, row/column/voxel compatibility scoring, and explicit signal/noise metrics.
+The current 2-view viewer is now a stable fallback demo; row banding is accepted as a known limitation rather than an active blocker. New work should happen as separate spikes/branches and should add a feasibility harness before browser polish. See `.hermes/plans/next-illusion-concepts-20260519.md`.
+
+Priority concept directions:
+
+- Asset-search scorer: rank candidate image pairs/sets by row overlap, side-only/front-only rows, point count, density spread, and color conflict before browser testing.
+- One-direction lenticular motion: from a single general view, left/right or up/down camera movement changes the visible picture or pose.
+- Designed 3-view support illusion: only attempt third-view images that fit the front/side support envelope; arbitrary top images are usually over-constrained.
+- Camera-driven animation illusion: use 2-3 co-designed frames and a fixed camera path to make the image appear to move.
+- Presentation fallback: improve final reveal/capture later, close to submission, without disturbing the stable baseline.
+
+Existing future polish ideas remain lower priority:
+
 - Color changes: current slice uses `frontColor`/`sideColor` endpoint attributes plus cosine directional shader color and glow only; future color experiments must preserve point identity and must not swap geometry or opacity-gate readings.
 - Light/shading: compare additive `THREE.Points`, Gaussian/sprite splats, and instanced tiny spheres for better contest rendering.
 - Evaluation: add automated orthographic captures and image-mask similarity metrics for each canonical view.
@@ -132,9 +143,13 @@ Physical cloud: 1 THREE.Points object using 1 shared BufferGeometry (...). Row Q
 - `src/contestRules.ts`: durable KAIST rule summary displayed in the app.
 - `src/styles.css`: browser UI and capture-status styling.
 - `scripts/final-qa.mjs`: timestamped final-submission sanity report for artifact/file/bundle size checks.
+- `scripts/algorithm-parity-harness.mjs`: strict/source-classification harness for `quantile_max` row materialization and `cosine_s1` endpoint color.
+- `scripts/shared-space-harness.mjs`: one-cloud/no-projection-only invariant and build harness used by `npm run harness`.
+- `scripts/visual-metrics.py`: heuristic screenshot metrics for fill/row-gap/banding comparisons; use as supporting evidence only.
 - `scene_config.json`: legacy render/camera parameters retained for compatibility; current shared-cloud constants live in `src/main.ts`.
 - `project_proposal.md`: original Korean proposal plus a current-status warning; historical content below the warning is not authoritative for the present branch.
-- `CURRENT_HANDOFF.md`: compact Korean/English handoff for `/new`, including invariant, harness, evidence, and the next color task.
+- `CURRENT_HANDOFF.md`: compact Korean/English handoff for `/new`, including invariant, harness, evidence, accepted limitations, and next concept directions.
+- `.hermes/plans/next-illusion-concepts-20260519.md`: concise options for new illusion concepts after freezing the current viewer baseline.
 - `writeup/writeup.md`: current submission write-up draft for the 2-view lenticular point-cloud direction.
 - `artifacts/`: preserved browser evidence screenshots.
 
