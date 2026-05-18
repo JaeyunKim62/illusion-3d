@@ -45,7 +45,7 @@ Browser console invariant/metrics export:
 window.__LENTICULAR_QA__
 ```
 
-The object is deterministic for the generated shared cloud and recomputes when read from the console. It includes the RNG seed, mask dimensions, row count, point count, front/side coverage, rows used, projection labels, scene `THREE.Points` count, shared-geometry identity check, explicit `position`/`color` attribute counts and item sizes, fixed per-point color/glow style metadata, and `pointCloudInvariantHolds` boolean. It also exposes `rowBalance`, a deterministic density/legibility QA block computed from the same sampled mask rows before/while generating the one physical point set:
+The object is deterministic for the generated shared cloud and recomputes when read from the console. It includes the RNG seed, mask dimensions, row count, point count, front/side coverage, rows used, projection labels, scene `THREE.Points` count, shared-geometry identity check, explicit `position`/`frontColor`/`sideColor` attribute counts and item sizes, directional color/glow style metadata, and `pointCloudInvariantHolds` boolean. It also exposes `rowBalance`, a deterministic density/legibility QA block computed from the same sampled mask rows before/while generating the one physical point set:
 
 ```js
 window.__LENTICULAR_QA__.rowBalance
@@ -58,7 +58,7 @@ window.__LENTICULAR_QA__.rowBalance
 // }
 ```
 
-These row-balance/density numbers are QA metrics only: they do not add point clouds, hidden layers, text meshes, view-dependent opacity gates, or alternate geometry. They describe how many rows from the two masks can be matched into the single shared `THREE.BufferGeometry`, and how dense those matched rows are for legibility tuning. Expected high-level result: `scenePointsCount === 1`, `pointCloudUsesSharedGeometry === true`, `geometryAttributes.names` is `["color", "position"]`, and `pointCloudInvariantHolds === true`.
+These row-balance/density numbers are QA metrics only: they do not add point clouds, hidden layers, text meshes, view-dependent opacity gates, or alternate geometry. They describe how many rows from the two masks can be matched into the single shared `THREE.BufferGeometry`, and how dense those matched rows are for legibility tuning. Expected high-level result: `scenePointsCount === 1`, `pointCloudUsesSharedGeometry === true`, `geometryAttributes.names` is `["frontColor", "position", "sideColor"]`, and `pointCloudInvariantHolds === true`.
 
 For final submission sanity checks, run:
 
@@ -83,15 +83,17 @@ npm run qa:submission
 2. Flood-fill the white page background from the canvas edges so enclosed white object regions (goose body, eyes, KAIST letters) stay active instead of disappearing into the background.
 3. Extract active pixels into row bins with their sampled RGB color.
 4. For each row `r`, collect front x-coordinates/colors `X_r` and side z-coordinates/colors `Z_r`.
-5. Generate `N_r = max(|X_r|, |Z_r|)` shared 3D points, reusing the shorter row modulo its sampled coordinates so the denser view is not unnecessarily thinned:
+5. Generate `N_r = max(|X_r|, |Z_r|)` shared 3D points with sorted midpoint quantile pairing, so the denser view is not thinned and the shorter row is reused evenly without row-order chaos:
 
 ```text
-p_i^r = (x_i, y_r, z_i)
+x_k = X_r[floor((k + 0.5) |X_r| / N_r)]
+z_k = Z_r[floor((k + 0.5) |Z_r| / N_r)]
+p_k^r = (x_k, y_r, z_k)
 ```
 
 The current implementation uses the side coordinate sign needed by the Three.js +X camera convention so the right-view screen reads left-to-right.
 
-Each point also gets exactly one fixed per-point RGB attribute. That color is a deterministic shared-space blend of the paired goose and nubzuki reference pixels, biased toward saturated/dark reference samples so blue/pink Nubzuki regions and orange/dark goose details remain visible. There is still no view-dependent opacity gate, texture swap, billboard, or second point set.
+Each point stores both endpoint RGB attributes, `frontColor` and `sideColor`. The shader computes `cosine_s1` directional color from the camera direction, preserving front color at the front endpoint and side color at the right endpoint. There is still no view-dependent opacity gate, texture swap, billboard, or second point set.
 
 ## Current evidence
 
@@ -120,13 +122,13 @@ Physical cloud: 1 THREE.Points object using 1 shared BufferGeometry (...). Row Q
 ## Extension roadmap
 
 - 4-view: exact independent north/east/south/west images are over-constrained for one `(x,y,z)` point set. Implement approximate 4-view matching with more points, row/column/voxel compatibility scoring, and explicit signal/noise metrics.
-- Color changes: current slice uses fixed per-point color attributes plus shader glow only; future color experiments must preserve point identity and must not swap geometry or opacity-gate readings.
+- Color changes: current slice uses `frontColor`/`sideColor` endpoint attributes plus cosine directional shader color and glow only; future color experiments must preserve point identity and must not swap geometry or opacity-gate readings.
 - Light/shading: compare additive `THREE.Points`, Gaussian/sprite splats, and instanced tiny spheres for better contest rendering.
 - Evaluation: add automated orthographic captures and image-mask similarity metrics for each canonical view.
 
 ## Source map
 
-- `src/main.ts`: shared point-cloud generation, Canvas reference-image/text-fallback masks, row matching, fixed per-point color attributes, Three.js orthographic viewer, PNG/WebM capture.
+- `src/main.ts`: shared point-cloud generation, Canvas reference-image/text-fallback masks, quantile row matching, directional endpoint color attributes, Three.js orthographic viewer, PNG/WebM capture.
 - `src/contestRules.ts`: durable KAIST rule summary displayed in the app.
 - `src/styles.css`: browser UI and capture-status styling.
 - `scripts/final-qa.mjs`: timestamped final-submission sanity report for artifact/file/bundle size checks.

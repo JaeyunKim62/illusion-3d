@@ -29,19 +29,20 @@ Front +Z projection: (x_i, y_r) -> goose
 Right +X projection: (z_i, y_r) -> nubzuki
 ```
 
-이 방식으로 현재 결과는 18,102개의 점을 가진 하나의 `THREE.BufferGeometry`로 구성된다.
+현재 구현은 행 안의 좌표를 무작위/modulo로 대응시키지 않고, 정렬된 midpoint quantile 방식으로 대응시킨다. 즉 `N_r=max(|X_r|,|Z_r|)`를 유지하되, `x_k=X_r[floor((k+0.5)|X_r|/N_r)]`, `z_k=Z_r[floor((k+0.5)|Z_r|/N_r)]`로 점을 만든다.
+
+이 방식으로 현재 결과는 20,797개의 점을 가진 하나의 `THREE.BufferGeometry`로 구성된다.
 
 ## 4. 색 표현 방식
 
-각 점에는 위치뿐 아니라 하나의 고정 RGB 색상도 함께 저장했다.
-거위 이미지에서 추출한 색과 넙죽이 이미지에서 추출한 색을 같은 행의 대응 픽셀 기준으로 섞어, 하나의 per-point color attribute로 기록했다.
-색은 점 자체의 속성으로 저장되므로, 어느 방향에서 보아도 같은 물리적 점의 고정 색상을 관찰하게 된다.
-이 구현을 통해 거위의 주황색/검은색 디테일과 넙죽이의 파란색/분홍색 계열이 하나의 점구름 안에서 함께 드러나도록 했다.
+각 점에는 위치뿐 아니라 정면 endpoint 색상(`frontColor`)과 우측 endpoint 색상(`sideColor`)을 함께 저장했다.
+shader는 카메라 방향에 따라 `cosine_s1` 가중치로 두 색을 섞는다. 정면에서는 거위 색이, 우측에서는 넙죽이/측면 이미지 색이 보존되고, 중간 각도에서만 부드럽게 전환된다.
+이 색 변화는 material response일 뿐이며, opacity gate, texture swap, 별도 geometry를 사용하지 않는다.
 
 ## 5. 렌더링과 뷰어
 
 렌더링은 Vite + TypeScript + Three.js 기반 브라우저 WebGL로 구현했다.
-장면의 핵심 객체는 하나의 `THREE.Points`이며, 이 객체는 하나의 `BufferGeometry`와 `position`, `color` attribute를 사용한다.
+장면의 핵심 객체는 하나의 `THREE.Points`이며, 이 객체는 하나의 `BufferGeometry`와 `position`, `frontColor`, `sideColor` attribute를 사용한다.
 점은 `ShaderMaterial`로 둥근 point sprite와 약한 glow를 적용해, 픽셀 기반 이미지가 점구름으로 부드럽게 읽히도록 했다.
 정면, 오른쪽, 뒤쪽, 왼쪽, 3D reveal, 자유 orbit 모드를 제공하여 착시 이미지와 실제 공간 구조를 모두 확인할 수 있게 했다.
 정면 `+Z` 버튼은 거위 projection을, 오른쪽 `+X` 버튼은 넙죽이 projection을 보여준다.
@@ -58,7 +59,7 @@ Right +X projection: (z_i, y_r) -> nubzuki
 
 ## 7. 구현 결과
 
-현재 브라우저 뷰어는 18,102개의 공유 점으로 거위와 넙죽이 두 이미지를 표현한다.
+현재 브라우저 뷰어는 20,797개의 공유 점으로 거위와 넙죽이/측면 두 이미지를 표현한다.
 정면 projection은 거위 실루엣과 색을 보여주고, 오른쪽 projection은 같은 점들의 `z,y` 좌표를 통해 넙죽이 실루엣과 색을 보여준다.
 3D reveal에서는 한 공간에 흩어진 점들의 서로 다른 투영 결과가 두 이미지로 읽히는 구조를 확인할 수 있다.
 녹화 기능은 10초 WebM을 생성하며, 필요하면 ffmpeg로 MP4 제출 형식으로 변환할 수 있다.
@@ -66,9 +67,9 @@ Right +X projection: (z_i, y_r) -> nubzuki
 ## 8. 검증
 
 프로젝트에는 `window.__LENTICULAR_QA__`와 `scripts/shared-space-harness.mjs`를 통해 핵심 구조를 검증하는 장치를 넣었다.
-검증 항목은 scene의 `THREE.Points` 개수, 공유 `BufferGeometry` 사용 여부, `position/color` attribute 수, projection 수, 점 개수, row matching 통계, 색상 정책을 포함한다.
-최근 main 기준 검증에서 `npm run harness`, `npm run build`, `npm run qa:submission`이 통과했다.
-최종 QA 리포트는 `artifacts/final-qa-20260518T042540Z.json`에 저장했다.
+검증 항목은 scene의 `THREE.Points` 개수, 공유 `BufferGeometry` 사용 여부, `position/frontColor/sideColor` attribute 수, projection 수, 점 개수, row matching 통계, 색상 정책을 포함한다.
+최근 main 기준 검증에서 `npm run harness`, `npm run harness:algorithm:require-production`, `npm run build`, `npm run qa:submission`이 통과했다.
+최종 QA 리포트는 `artifacts/final-qa-20260518T134151Z.json`에 저장했다.
 
 ## 9. 재현 방법
 

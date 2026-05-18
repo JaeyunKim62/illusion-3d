@@ -74,23 +74,26 @@ It then generates:
 
 ```text
 N_r = max(|X_r|, |Z_r|)
-p_i^r = (x_i, y_r, z_i)
+x_k = X_r[floor((k + 0.5) |X_r| / N_r)]
+z_k = Z_r[floor((k + 0.5) |Z_r| / N_r)]
+p_k^r = (x_k, y_r, z_k)
 ```
 
-The shorter coordinate list is reused modulo its sampled coordinates so that the denser image is not unnecessarily thinned. This preserves a single physical point set while allowing both front and side masks to stay legible.
+The shorter coordinate list is reused by sorted midpoint quantile indexing rather than shuffled modulo indexing. This keeps the denser image from being unnecessarily thinned while reducing row-order/reveal chaos.
 
 ### 3.3 Color and light
 
-The current branch includes a fixed per-point color attribute and shader glow presentation. This is allowed because the color belongs to the physical point and does not swap by camera view. The current UI describes this as:
+The current branch stores endpoint colors as `frontColor` and `sideColor` attributes and computes cosine directional color in the shader. This is a material/color response only: it does not hide points, swap texture, or change geometry by view. The current UI describes this as:
 
 ```text
-colorSource: fixed-per-point-attribute
+colorSource: frontColor/sideColor endpoint attributes
+colorPolicy: cosine_s1-directional-color
 shaderGlowOnly: true
 viewDependentOpacityGate: false
 depthTestReadingGate: false
 ```
 
-The next implementation step is to improve color fidelity for both goose and nubzuki while preserving this invariant. Any future color pass must not introduce view-dependent opacity, hidden geometry, or duplicated point fields.
+This improves endpoint color fidelity for both readings while preserving the one-cloud invariant. Future color passes must still avoid view-dependent opacity, hidden geometry, texture swaps, or duplicated point fields.
 
 ### 3.4 Viewer and capture controls
 

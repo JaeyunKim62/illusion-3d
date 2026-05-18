@@ -1,0 +1,69 @@
+{
+  "seed": 4792026,
+  "maskDimensions": {
+    "width": 960,
+    "height": 280,
+    "sampleStride": 1
+  },
+  "rowCount": 190,
+  "pointCount": 20797,
+  "coverage": {
+    "front": 1,
+    "side": 0.7566672730580316
+  },
+  "rowsUsed": 144,
+  "rowBalance": {
+    "activeRows": {
+      "front": 144,
+      "side": 190,
+      "matched": 144
+    },
+    "matchedRowRatio": 0.7578947368421053,
+    "rowMismatches": {
+      "frontOnly": 0,
+      "sideOnly": 46,
+      "emptyBoth": 0
+    },
+    "generatedPointsPerMatchedRow": {
+      "min": 21,
+      "median": 154,
+      "max": 316
+    },
+    "activePixels": {
+      "front": 6543,
+      "side": 27485
+    }
+  },
+  "projectionLabels": {
+    "front": "Front +Z orthographic projection: (x,y) => GOOSE",
+    "right": "Right +X orthographic projection: (z,y) => NUBZUKI"
+  },
+  "projectionCount": 2,
+  "projectionOnlyPointCount": 0,
+  "noProjectionOnlyPoints": true,
+  "backgroundNoisePolicy": "no projection-only points; every rendered point must be paired from front and side masks",
+  "scenePointsCount": 1,
+  "pointCloudUsesSharedGeometry": true,
+  "geometryAttributes": {
+    "names": [
+      "frontColor",
+      "position",
+      "sideColor"
+    ],
+    "positionCount": 20797,
+    "positionItemSize": 3,
+    "frontColorCount": 20797,
+    "frontColorItemSize": 3,
+    "sideColorCount": 20797,
+    "sideColorItemSize": 3
+  },
+  "visualStyle": {
+    "colorSource": "frontColor/sideColor endpoint attributes",
+    "colorPolicy": "cosine_s1-directional-color",
+    "shaderGlowOnly": true,
+    "viewDependentOpacityGate": false,
+    "depthTestReadingGate": false
+  },
+  "pointCloudInvariantHolds": true,
+  "browserConsoleErrors": []
+}

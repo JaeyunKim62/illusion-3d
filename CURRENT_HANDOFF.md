@@ -27,7 +27,7 @@ Allowed:
 
 - one `THREE.Points` object for the contest object,
 - one shared `THREE.BufferGeometry`,
-- fixed per-point `position` and `color` attributes,
+- fixed per-point `position`, `frontColor`, and `sideColor` attributes,
 - shader glow / splat styling,
 - helper axes/grid/labels as non-reading diagnostics,
 - front/right/back/left/reveal/orbit camera modes.
@@ -109,7 +109,7 @@ Older color/glow evidence exists, but after the 3-view revert the clean common-p
 
 ## Current source map
 
-- `src/main.ts`: viewer UI, mask extraction, shared point-cloud generation, fixed color attributes, shader glow, view controls, capture controls, runtime QA.
+- `src/main.ts`: viewer UI, mask extraction, shared point-cloud generation, quantile row materialization, endpoint color attributes, cosine directional shader color, view controls, capture controls, runtime QA.
 - `src/contestRules.ts`: KAIST rule summary displayed in the app.
 - `scripts/shared-space-harness.mjs`: regression harness for the 2-view no-projection-only invariant.
 - `scripts/final-qa.mjs`: artifact/package size and required-file sanity report.
@@ -129,31 +129,34 @@ What changed:
 
 - Reference mask extraction now flood-fills white page background from the canvas edges, so enclosed white object regions remain active.
 - Each row sample carries RGB from the reference image, not only an x/z coordinate.
-- Each shared 3D point gets one fixed per-point RGB attribute from a deterministic goose/nubzuki reference-color blend.
+- Each shared 3D point stores endpoint RGB attributes from the paired front/side reference pixels; the shader computes cosine directional color from the camera direction.
 - Density was raised from `SAMPLE_STRIDE=2`, `ROW_COUNT=150` to `SAMPLE_STRIDE=1`, `ROW_COUNT=190`; current cloud has 18,102 shared points.
 - Point size/framing were tightened for clearer canonical screenshots.
 - No view-dependent opacity/geometry/texture swap was introduced.
 
-Latest checks:
+Latest algorithm implementation checks:
 
 - `npm run harness`: PASS
-- `npm run qa:submission`: PASS, report `artifacts/final-qa-20260518T022452Z.json`
+- `npm run harness:algorithm`: PASS
+- `npm run harness:algorithm:require-production`: PASS
+- `npm run qa:submission`: PASS, report `artifacts/final-qa-20260518T134151Z.json`
 - Browser console in the dev app: no JS errors
-- Runtime QA: `scenePointsCount=1`, shared geometry PASS, `projectionOnlyPointCount=0`, `noProjectionOnlyPoints=true`, `colorPolicy=reference-rgb-shared-blend`
+- Runtime QA: `scenePointsCount=1`, shared geometry PASS, `projectionOnlyPointCount=0`, `noProjectionOnlyPoints=true`, `rowPolicy=quantile_max/sorted-midpoint-quantile`, `colorPolicy=cosine_s1-directional-color`
 
-Latest evidence:
+Latest algorithm evidence:
 
 ```text
-artifacts/evidence/front-goose-color-2view-20260518.png
-artifacts/evidence/right-nubzuki-color-2view-20260518.png
-artifacts/evidence/reveal-color-2view-20260518.png
+artifacts/algorithm-implementation/front-quantile-directional-20260518.png
+artifacts/algorithm-implementation/right-quantile-directional-20260518.png
+artifacts/algorithm-implementation/reveal-quantile-directional-20260518.png
+artifacts/algorithm-implementation/browser-qa-20260518.json
 ```
 
 Observed quality:
 
-- Front goose is recognizable with light cyan/white body, darker outline/details, and visible beak/feet color influence.
-- Right Nubzuki is recognizable with blue/cyan body, pink facial protrusion, black/dark details, and white/light areas.
-- Remaining visual weakness: horizontal row banding and point-cloud speckle/noisy edges are still visible, especially in fine face/foot details.
+- Front goose remains recognizable and now uses front endpoint colors in the front view.
+- Right image/cake-side view is recognizable with endpoint color present.
+- Remaining visual weakness: horizontal row banding/scanline artifacts and sparse/jagged edges are still visible; side coverage remains about 75.7% due to unmatched side-only rows.
 
 ## Next likely task
 

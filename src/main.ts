@@ -27,7 +27,9 @@ type CloudStats = {
   projectionOnlyPointCount: 0;
   noProjectionOnlyPoints: true;
   backgroundNoisePolicy: 'no projection-only points; every rendered point must be paired from front and side masks';
-  colorPolicy: 'fixed per-point RGB sampled from both reference images and blended in shared space';
+  colorPolicy: 'cosine_s1 directional color from frontColor/sideColor endpoint attributes';
+  rowMaterializationPolicy: 'quantile_max';
+  rowOrderPolicy: 'sorted-midpoint-quantile';
 };
 type LenticularQa = {
   seed: number;
@@ -48,12 +50,14 @@ type LenticularQa = {
     names: readonly string[];
     positionCount: number;
     positionItemSize: number;
-    colorCount: number;
-    colorItemSize: number;
+    frontColorCount: number;
+    frontColorItemSize: number;
+    sideColorCount: number;
+    sideColorItemSize: number;
   }>;
   visualStyle: Readonly<{
-    colorSource: 'fixed-per-point-attribute';
-    colorPolicy: 'reference-rgb-shared-blend';
+    colorSource: 'frontColor/sideColor endpoint attributes';
+    colorPolicy: 'cosine_s1-directional-color';
     shaderGlowOnly: boolean;
     viewDependentOpacityGate: boolean;
     depthTestReadingGate: boolean;
@@ -69,7 +73,8 @@ declare global {
 
 type GeneratedCloud = {
   positions: Float32Array;
-  colors: Float32Array;
+  frontColors: Float32Array;
+  sideColors: Float32Array;
   stats: CloudStats;
 };
 
@@ -130,7 +135,7 @@ app.innerHTML = `
       <p class="capture-status" id="captureStatus" role="status">Capture ready. Use Front/Right before PNG capture, or record the 10s +X → −Z → 45° overhead reveal path.</p>
       <section class="score-card"><h2>Invariant QA</h2><p class="qa-metric" id="invariantQaMetric">checking physical point-set invariant…</p></section>
       <section class="score-card"><h2>수학적 정의</h2><ul><li>점 하나: <code>p=(x,y,z)</code></li><li>Front +Z projection: <code>πZ(p)=(x,y)</code> → goose reference mask</li><li>Right +X projection: <code>πX(p)=(z,y)</code> → nubzuki reference mask</li><li>Back/Left는 같은 점의 좌우반전 projection</li></ul></section>
-      <section class="score-card"><h2>색/빛 단계</h2><ul><li>Geometry는 그대로 하나의 <code>BufferGeometry</code>입니다.</li><li>각 점은 두 참조 이미지에서 샘플한 RGB를 하나의 고정 per-point color로 blend합니다.</li><li>radial glow shader만 추가했고, view별 geometry/opacity/color gate는 추가하지 않았습니다.</li></ul></section>
+      <section class="score-card"><h2>색/빛 단계</h2><ul><li>Geometry는 그대로 하나의 <code>BufferGeometry</code>입니다.</li><li>각 점은 두 참조 이미지의 endpoint RGB(<code>frontColor</code>/<code>sideColor</code>)를 보관합니다.</li><li>shader가 카메라 각도에 따라 <code>cosine_s1</code> directional color를 계산합니다. Geometry/opacity/texture gate는 추가하지 않았습니다.</li></ul></section>
       <section class="score-card"><h2>우선 규정</h2><ul>${contestRules.map((r) => `<li><b>${r.title}</b> — ${r.implementationPolicy}</li>`).join('')}</ul></section>
     </aside>
   </main>
@@ -306,59 +311,35 @@ function rowToY(row: number) {
   return (0.5 - row / (ROW_COUNT - 1)) * POINT_SCALE_Y;
 }
 
-function colorChroma(color: Rgb) {
-  return Math.max(color[0], color[1], color[2]) - Math.min(color[0], color[1], color[2]);
-}
-
-function colorDarkness(color: Rgb) {
-  return 1 - (color[0] + color[1] + color[2]) / 3;
-}
-
-function blendReferenceColors(frontColor: Rgb, sideColor: Rgb, rand: () => number): Rgb {
-  // One physical point can only carry one color.  Use a deterministic shared-space blend,
-  // but bias toward the more informative sample so Nubzuki blue/pink and goose orange/dark
-  // outlines survive instead of collapsing into a washed-out average.
-  const frontSignal = colorChroma(frontColor) * 1.45 + colorDarkness(frontColor) * 1.2;
-  const sideSignal = colorChroma(sideColor) * 1.25 + colorDarkness(sideColor) * 0.9;
-  const frontWeight = THREE.MathUtils.clamp(0.48 + (frontSignal - sideSignal) * 0.42, 0.24, 0.76);
-  const jitter = (rand() - 0.5) * 0.045;
-  const w = THREE.MathUtils.clamp(frontWeight + jitter, 0.22, 0.78);
-  const gamma = 1.35;
-  const mix = (a: number, b: number) => Math.pow(Math.pow(a, gamma) * w + Math.pow(b, gamma) * (1 - w), 1 / gamma);
-  const r = mix(frontColor[0], sideColor[0]);
-  const g = mix(frontColor[1], sideColor[1]);
-  const b = mix(frontColor[2], sideColor[2]);
-  const boost = 1.07;
-  return [Math.min(1, r * boost), Math.min(1, g * boost), Math.min(1, b * boost)];
+function quantileIndex(k: number, sourceLength: number, targetLength: number) {
+  return Math.min(sourceLength - 1, Math.floor((k + 0.5) * sourceLength / targetLength));
 }
 
 function generateSharedPointCloud(front: MaskRows, side: MaskRows): GeneratedCloud {
-  const rand = seeded(RNG_SEED);
   const rowBalance = analyzeRowBalance(front, side);
   const positions: number[] = [];
-  const colors: number[] = [];
+  const frontColors: number[] = [];
+  const sideColors: number[] = [];
   let rowsUsed = 0;
   let frontUsed = 0;
   let sideUsed = 0;
 
   for (let row = 0; row < ROW_COUNT; row += 1) {
-    const frontSamples = [...front.rows[row]];
-    const sideSamples = [...side.rows[row]];
+    const frontSamples = [...front.rows[row]].sort((a, b) => a.coord - b.coord);
+    const sideSamples = [...side.rows[row]].sort((a, b) => a.coord - b.coord);
     if (frontSamples.length === 0 || sideSamples.length === 0) continue;
-    shuffleInPlace(frontSamples, rand);
-    shuffleInPlace(sideSamples, rand);
     const count = Math.max(frontSamples.length, sideSamples.length);
     if (count <= 0) continue;
     rowsUsed += 1;
     const y = rowToY(row);
     for (let i = 0; i < count; i += 1) {
-      const frontSample = frontSamples[i % frontSamples.length];
-      const sideSample = sideSamples[i % sideSamples.length];
+      const frontSample = frontSamples[quantileIndex(i, frontSamples.length, count)];
+      const sideSample = sideSamples[quantileIndex(i, sideSamples.length, count)];
       const x = frontSample.coord;
       const z = -sideSample.coord;
       positions.push(x, y, z);
-      const [r, g, b] = blendReferenceColors(frontSample.color, sideSample.color, rand);
-      colors.push(r, g, b);
+      frontColors.push(...frontSample.color);
+      sideColors.push(...sideSample.color);
       frontUsed += 1;
       sideUsed += 1;
     }
@@ -366,7 +347,8 @@ function generateSharedPointCloud(front: MaskRows, side: MaskRows): GeneratedClo
 
   return {
     positions: new Float32Array(positions),
-    colors: new Float32Array(colors),
+    frontColors: new Float32Array(frontColors),
+    sideColors: new Float32Array(sideColors),
     stats: {
       points: positions.length / 3,
       frontCoverage: Math.min(1, frontUsed / Math.max(1, front.activePixels)),
@@ -378,7 +360,9 @@ function generateSharedPointCloud(front: MaskRows, side: MaskRows): GeneratedClo
       projectionOnlyPointCount: 0,
       noProjectionOnlyPoints: true,
       backgroundNoisePolicy: 'no projection-only points; every rendered point must be paired from front and side masks',
-      colorPolicy: 'fixed per-point RGB sampled from both reference images and blended in shared space',
+      colorPolicy: 'cosine_s1 directional color from frontColor/sideColor endpoint attributes',
+      rowMaterializationPolicy: 'quantile_max',
+      rowOrderPolicy: 'sorted-midpoint-quantile',
     },
   };
 }
@@ -398,19 +382,25 @@ const cloud = generateSharedPointCloud(frontMask, sideMask);
 
 const geometry = new THREE.BufferGeometry();
 geometry.setAttribute('position', new THREE.BufferAttribute(cloud.positions, 3));
-geometry.setAttribute('color', new THREE.BufferAttribute(cloud.colors, 3));
+geometry.setAttribute('frontColor', new THREE.BufferAttribute(cloud.frontColors, 3));
+geometry.setAttribute('sideColor', new THREE.BufferAttribute(cloud.sideColors, 3));
 geometry.computeBoundingSphere();
 
 const material = new THREE.ShaderMaterial({
   uniforms: {
     uSize: { value: POINT_SIZE * Math.min(devicePixelRatio, 2) },
     uAlpha: { value: 0.78 },
+    uSideWeight: { value: 0 },
   },
   vertexShader: `
     uniform float uSize;
-    varying vec3 vColor;
+    attribute vec3 frontColor;
+    attribute vec3 sideColor;
+    varying vec3 vFrontColor;
+    varying vec3 vSideColor;
     void main() {
-      vColor = color;
+      vFrontColor = frontColor;
+      vSideColor = sideColor;
       vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
       gl_PointSize = uSize;
       gl_Position = projectionMatrix * mvPosition;
@@ -418,13 +408,16 @@ const material = new THREE.ShaderMaterial({
   `,
   fragmentShader: `
     uniform float uAlpha;
-    varying vec3 vColor;
+    uniform float uSideWeight;
+    varying vec3 vFrontColor;
+    varying vec3 vSideColor;
     void main() {
       float d = length(gl_PointCoord - vec2(0.5));
       if (d > 0.5) discard;
       float alpha = smoothstep(0.5, 0.06, d) * uAlpha;
       float core = smoothstep(0.18, 0.0, d);
-      vec3 glowColor = mix(vColor * 1.12, vec3(1.0), core * 0.22);
+      vec3 directionalColor = mix(vFrontColor, vSideColor, clamp(uSideWeight, 0.0, 1.0));
+      vec3 glowColor = mix(directionalColor * 1.12, vec3(1.0), core * 0.22);
       gl_FragColor = vec4(glowColor, alpha);
     }
   `,
@@ -470,20 +463,26 @@ function buildLenticularQa(): LenticularQa {
   const pointCloudUsesSharedGeometry = pointCloud.geometry === geometry;
   const attributeNames = Object.keys(geometry.attributes).sort();
   const positionAttribute = geometry.getAttribute('position');
-  const colorAttribute = geometry.getAttribute('color');
+  const frontColorAttribute = geometry.getAttribute('frontColor');
+  const sideColorAttribute = geometry.getAttribute('sideColor');
   const positionCount = positionAttribute?.count ?? 0;
-  const colorCount = colorAttribute?.count ?? 0;
+  const frontColorCount = frontColorAttribute?.count ?? 0;
+  const sideColorCount = sideColorAttribute?.count ?? 0;
   const positionItemSize = positionAttribute?.itemSize ?? 0;
-  const colorItemSize = colorAttribute?.itemSize ?? 0;
+  const frontColorItemSize = frontColorAttribute?.itemSize ?? 0;
+  const sideColorItemSize = sideColorAttribute?.itemSize ?? 0;
   const pointCloudInvariantHolds = scenePointsCount === 1
     && pointCloudUsesSharedGeometry
-    && attributeNames.length === 2
+    && attributeNames.length === 3
     && attributeNames.includes('position')
-    && attributeNames.includes('color')
+    && attributeNames.includes('frontColor')
+    && attributeNames.includes('sideColor')
     && positionCount === cloud.stats.points
-    && colorCount === cloud.stats.points
+    && frontColorCount === cloud.stats.points
+    && sideColorCount === cloud.stats.points
     && positionItemSize === 3
-    && colorItemSize === 3;
+    && frontColorItemSize === 3
+    && sideColorItemSize === 3;
 
   return deepFreeze({
     seed: RNG_SEED,
@@ -507,12 +506,14 @@ function buildLenticularQa(): LenticularQa {
       names: Object.freeze(attributeNames),
       positionCount,
       positionItemSize,
-      colorCount,
-      colorItemSize,
+      frontColorCount,
+      frontColorItemSize,
+      sideColorCount,
+      sideColorItemSize,
     }),
     visualStyle: Object.freeze({
-      colorSource: 'fixed-per-point-attribute',
-      colorPolicy: 'reference-rgb-shared-blend',
+      colorSource: 'frontColor/sideColor endpoint attributes',
+      colorPolicy: 'cosine_s1-directional-color',
       shaderGlowOnly: true,
       viewDependentOpacityGate: false,
       depthTestReadingGate: false,
@@ -570,6 +571,18 @@ const viewDefs: Record<ViewMode, { pos: THREE.Vector3; label: string; detail: st
   orbit: { pos: new THREE.Vector3(4.6, 2.1, 5.1), label: 'ORBIT', detail: 'drag to inspect the one shared point set', badge: 'free orbit', grid: true },
 };
 
+
+function cosineS1SideWeightFromCamera() {
+  const side = Math.abs(camera.position.x);
+  const front = Math.abs(camera.position.z);
+  const denom = Math.max(1e-6, side + front);
+  return side / denom;
+}
+
+function updateDirectionalColorWeight() {
+  material.uniforms.uSideWeight.value = cosineS1SideWeightFromCamera();
+}
+
 function setCameraTo(position: THREE.Vector3) {
   camera.position.copy(position);
   camera.zoom = 1;
@@ -577,6 +590,7 @@ function setCameraTo(position: THREE.Vector3) {
   camera.lookAt(0, 0, 0);
   controls.target.set(0, 0, 0);
   controls.update();
+  updateDirectionalColorWeight();
 }
 
 function smoothStep01(t: number) {
@@ -595,6 +609,7 @@ function setRecordingPose(position: THREE.Vector3, zoom: number, target = new TH
   camera.updateProjectionMatrix();
   camera.lookAt(target);
   controls.target.copy(target);
+  updateDirectionalColorWeight();
 }
 
 function updateRecordingCamera(t: number) {
@@ -703,13 +718,14 @@ function animate(now: number) {
     if (t >= 1) setView('front');
   }
   if (controls.enabled) controls.update();
+  updateDirectionalColorWeight();
   renderer.render(scene, camera);
 }
 requestAnimationFrame(animate);
 
 const qa = window.__LENTICULAR_QA__;
 errorMetric.textContent = `same points: ${cloud.stats.points.toLocaleString()} / matched rows: ${cloud.stats.rowsUsed}/${cloud.stats.rowCount} / active-row overlap: ${(cloud.stats.rowBalance.matchedRowRatio * 100).toFixed(1)}% / row density min-med-max: ${cloud.stats.rowBalance.generatedPointsPerMatchedRow.min}-${cloud.stats.rowBalance.generatedPointsPerMatchedRow.median}-${cloud.stats.rowBalance.generatedPointsPerMatchedRow.max} / coverage F/S: ${(cloud.stats.frontCoverage * 100).toFixed(1)}%/${(cloud.stats.sideCoverage * 100).toFixed(1)}%`;
-invariantQaMetric.textContent = `Physical cloud: ${qa.scenePointsCount} THREE.Points object using 1 shared BufferGeometry (${qa.geometryAttributes.names.join(' + ')} attributes, count=${qa.pointCount.toLocaleString()}). Row QA: active rows F/S/M=${qa.rowBalance.activeRows.front}/${qa.rowBalance.activeRows.side}/${qa.rowBalance.activeRows.matched}; drops F-only/S-only/empty=${qa.rowBalance.rowMismatches.frontOnly}/${qa.rowBalance.rowMismatches.sideOnly}/${qa.rowBalance.rowMismatches.emptyBoth}; sampled active pixels F/S=${qa.rowBalance.activePixels.front.toLocaleString()}/${qa.rowBalance.activePixels.side.toLocaleString()}. Shared-space QA: projectionCount=${qa.projectionCount}, projectionOnlyPointCount=${qa.projectionOnlyPointCount}, noProjectionOnlyPoints=${qa.noProjectionOnlyPoints}; policy=${qa.backgroundNoisePolicy}; colorPolicy=${qa.visualStyle.colorPolicy}. Style QA: ${qa.visualStyle.colorSource}, shaderGlowOnly=${qa.visualStyle.shaderGlowOnly}, viewOpacityGate=${qa.visualStyle.viewDependentOpacityGate}, depthGate=${qa.visualStyle.depthTestReadingGate}. Helper axes/grid may have their own line geometries, but they are not point sets. Point-cloud invariant: ${qa.pointCloudInvariantHolds ? 'PASS' : 'FAIL'}.`;
+invariantQaMetric.textContent = `Physical cloud: ${qa.scenePointsCount} THREE.Points object using 1 shared BufferGeometry (${qa.geometryAttributes.names.join(' + ')} attributes, count=${qa.pointCount.toLocaleString()}). Row QA: active rows F/S/M=${qa.rowBalance.activeRows.front}/${qa.rowBalance.activeRows.side}/${qa.rowBalance.activeRows.matched}; drops F-only/S-only/empty=${qa.rowBalance.rowMismatches.frontOnly}/${qa.rowBalance.rowMismatches.sideOnly}/${qa.rowBalance.rowMismatches.emptyBoth}; sampled active pixels F/S=${qa.rowBalance.activePixels.front.toLocaleString()}/${qa.rowBalance.activePixels.side.toLocaleString()}. Shared-space QA: projectionCount=${qa.projectionCount}, projectionOnlyPointCount=${qa.projectionOnlyPointCount}, noProjectionOnlyPoints=${qa.noProjectionOnlyPoints}; policy=${qa.backgroundNoisePolicy}; rowPolicy=${cloud.stats.rowMaterializationPolicy}/${cloud.stats.rowOrderPolicy}; colorPolicy=${qa.visualStyle.colorPolicy}. Style QA: ${qa.visualStyle.colorSource}, shaderGlowOnly=${qa.visualStyle.shaderGlowOnly}, viewOpacityGate=${qa.visualStyle.viewDependentOpacityGate}, depthGate=${qa.visualStyle.depthTestReadingGate}. Helper axes/grid may have their own line geometries, but they are not point sets. Point-cloud invariant: ${qa.pointCloudInvariantHolds ? 'PASS' : 'FAIL'}.`;
 setView('front');
 
 (document.querySelector('#shotBtn') as HTMLButtonElement).onclick = () => {
