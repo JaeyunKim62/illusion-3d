@@ -124,8 +124,9 @@ Physical cloud: 1 THREE.Points object using 1 shared BufferGeometry (...). Row Q
 - `src/styles.css`: browser UI and capture-status styling.
 - `scripts/final-qa.mjs`: timestamped final-submission sanity report for artifact/file/bundle size checks.
 - `scene_config.json`: legacy render/camera parameters retained for compatibility; current shared-cloud constants live in `src/main.ts`.
-- `project_proposal.md`: full Korean project specification and write-up outline.
-- `writeup/writeup.md`: submission write-up draft to update for the lenticular point-cloud direction.
+- `project_proposal.md`: original Korean proposal plus a current-status warning; historical content below the warning is not authoritative for the present branch.
+- `CURRENT_HANDOFF.md`: compact Korean/English handoff for `/new`, including invariant, harness, evidence, and the next color task.
+- `writeup/writeup.md`: current submission write-up draft for the 2-view lenticular point-cloud direction.
 - `artifacts/`: preserved browser evidence screenshots.
 
 ## Final submission checklist

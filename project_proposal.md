@@ -1,5 +1,7 @@
 # 프로젝트 명세서
 
+> 현재 상태 주의 (2026-05-18): 이 파일의 아래 본문은 초기 `Perceptual Twin Room` 제안서가 많이 남아 있는 역사적 명세입니다. 현재 구현/다음 작업의 기준은 `README.md`, `CURRENT_HANDOFF.md`, `writeup/writeup.md`, `scripts/shared-space-harness.mjs`입니다. 현재 브랜치 `reference-image-two-view`의 핵심 방향은 하나의 공유 `THREE.BufferGeometry` 점군으로 Front +Z에서는 goose, Right +X에서는 nubzuki가 보이는 2-view lenticular point cloud입니다. 3-view/Top projection-only 방식은 barcode 배경 노이즈 때문에 금지되었고 harness가 회귀를 막습니다.
+
 공식 contest 기준으로 이 프로젝트는 **handcrafted / procedurally generated 3D scene**에 해당합니다. 과제는 3D object/scene을 reconstruct, generate, 또는 design/handcraft한 뒤 가장 인상적인 rendering video로 보여주는 것이고, Technology Score는 scene 생성과 렌더링 과정의 technical novelty/difficulty, Creativity Score는 originality/artistic value를 봅니다. 또한 Blender rendering, commercial software, 외부 3D asset, closed-source tool은 금지이고, webpage + `.js` 같은 3D content 제출이 허용됩니다. ([KAIST 3DML](https://3dml.kaist.ac.kr/3d-rendering-contest/?utm_source=chatgpt.com))
 
 ---
