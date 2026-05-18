@@ -139,7 +139,7 @@ Latest algorithm implementation checks:
 - `npm run harness`: PASS
 - `npm run harness:algorithm`: PASS
 - `npm run harness:algorithm:require-production`: PASS
-- `npm run qa:submission`: PASS, report `artifacts/final-qa-20260518T141840Z.json`
+- `npm run qa:submission`: PASS, report `artifacts/final-qa-20260518T142208Z.json`
 - `npm run qa:visual-metrics -- ...`: PASS, reports `artifacts/algorithm-implementation/visual-metrics-iteration3-20260518.json` and `artifacts/algorithm-implementation/visual-metrics-iteration4-20260518.json`
 - Browser console in the dev app: no JS errors
 - Runtime QA: `scenePointsCount=1`, shared geometry PASS, `projectionOnlyPointCount=0`, `noProjectionOnlyPoints=true`, `rowPolicy=quantile_max/sorted-midpoint-quantile`, `yJitter=deterministic-low-discrepancy-y-jitter@0.42`, `sizeJitter=±0.10`, `colorPolicy=cosine_s1-directional-color`
@@ -161,6 +161,8 @@ artifacts/algorithm-implementation/right-sizejitter-20260518.png
 artifacts/algorithm-implementation/reveal-sizejitter-20260518.png
 artifacts/algorithm-implementation/browser-qa-sizejitter-20260518.json
 artifacts/algorithm-implementation/visual-metrics-iteration4-20260518.json
+artifacts/algorithm-implementation/front-alpha-jitter-rejected-20260518.png
+artifacts/algorithm-implementation/browser-qa-alpha-jitter-rejected-20260518.json
 ```
 
 Observed quality:
@@ -169,6 +171,7 @@ Observed quality:
 - Right image/cake-side view is recognizable with endpoint color present.
 - Latest tuned jitter/splat pass (`SUB_ROW_JITTER_SCALE=0.42`, `POINT_SIZE=2.55`, `uAlpha=0.72`, `POINT_SIZE_JITTER=0.10`) is acceptable to keep: front/right readability remains good, reveal feels more solid/natural, and one-cloud invariant remains clear.
 - Remaining visual weakness: horizontal row banding/scanline artifacts are still visible; side coverage remains about 75.7% due to unmatched side-only rows.
+- Rejected experiment: deterministic alpha jitter ±0.08 added visible mottled/speckled noise without reducing banding enough, so it was reverted; final state keeps iteration4 point-size jitter only.
 
 ## Next likely task
 

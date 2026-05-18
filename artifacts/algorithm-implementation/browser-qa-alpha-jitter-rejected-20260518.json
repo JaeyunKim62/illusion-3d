@@ -1,0 +1,29 @@
+{
+  "iteration": 5,
+  "experiment": "subtle deterministic alpha jitter ±0.08",
+  "decision": "rejected and reverted",
+  "reason": "browser QA judged added alpha variation as mottled/speckled noise that did not materially reduce horizontal banding; iteration4 ±0.10 point-size jitter is cleaner",
+  "rejectedEvidence": {
+    "frontScreenshot": "artifacts/algorithm-implementation/front-alpha-jitter-rejected-20260518.png",
+    "browserVisionVerdict": "revert alpha jitter; keep iteration4 size jitter"
+  },
+  "finalRuntimeQaAfterRevert": {
+    "pointCount": 20797,
+    "projectionCount": 2,
+    "projectionOnlyPointCount": 0,
+    "noProjectionOnlyPoints": true,
+    "scenePointsCount": 1,
+    "pointCloudUsesSharedGeometry": true,
+    "geometryAttributes": ["frontColor", "position", "sideColor"],
+    "rowMaterializationPolicy": "quantile_max",
+    "rowOrderPolicy": "sorted-midpoint-quantile",
+    "subRowJitterScale": 0.42,
+    "pointSizeJitter": 0.10,
+    "alphaJitterPresent": false,
+    "colorPolicy": "cosine_s1-directional-color",
+    "viewDependentOpacityGate": false,
+    "depthTestReadingGate": false,
+    "pointCloudInvariantHolds": true
+  },
+  "browserConsoleErrorsAfterRevert": []
+}
