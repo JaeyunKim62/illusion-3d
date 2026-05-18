@@ -24,3 +24,18 @@
 - Commit: `71f8d12 chore: expose lenticular invariant qa`.
 - Next step: improve legibility/density with measurable front/right screenshots in a unique artifact directory, preserving the same shared-cloud invariant.
 
+## Tick 2/6 — deterministic row-balance QA and visual evidence
+
+- Slice: backlog #1/#2 boundary, deterministic row-balance/density metrics for legibility tuning while preserving the proven 2-view shared-cloud invariant.
+- Changed files: `src/main.ts`, `README.md`, `artifacts/lenticular-row-qa-tick2-20260518T002851Z/front-what-we-see-row-qa.png`, `artifacts/lenticular-row-qa-tick2-20260518T002851Z/right-what-exists-row-qa.png`.
+- Implemented: `window.__LENTICULAR_QA__.rowBalance` with active rows, matched active-row overlap, front/side/empty row mismatches, generated-points-per-matched-row min/median/max, and sampled active mask positions; visible HUD/Invariant QA row-density readout; README documentation for interpreting the metrics as QA only, not alternate geometry.
+- Invariant status: physical cloud remains one `THREE.Points` object backed by one shared `THREE.BufferGeometry`; no separate text meshes, duplicate point clouds, per-view hidden layers, or opacity/depth-test reading tricks added.
+- Verification:
+  - `npm run build` PASS; only known Vite/Three.js chunk-size warning.
+  - Spec review PASS; quality review APPROVED, with wording clarifications applied for active-row overlap and sampled active pixels.
+  - `git diff --check` PASS, with only Git LF→CRLF working-copy warnings.
+  - Static scan found the expected single `new THREE.Points(geometry, material)` and single point-cloud `BufferGeometry`; additional `BufferGeometry` usages are helper axis lines only.
+  - Browser QA available: front view visually read `WHAT WE SEE`; right view visually read `WHAT EXISTS`; console reported `scenePointsCount: 1`, `pointCloudUsesSharedGeometry: true`, `pointCloudInvariantHolds: true`, `rowBalance.activeRows: {front: 75, side: 75, matched: 75}`, `matchedRowRatio: 1`, and no console/JS errors.
+- Commit: `edd9f67 chore: add lenticular row qa metrics`.
+- Next step: use the new row/density metrics to tune legibility or add a semi-automated orthographic capture/evaluation helper in a separate bounded slice.
+
