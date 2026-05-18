@@ -4,7 +4,7 @@ import { contestRules } from './contestRules.ts';
 import './styles.css';
 
 type ViewMode = 'front' | 'right' | 'back' | 'left' | 'reveal' | 'orbit';
-type MaskSpec = { name: string; text: string; color: string };
+type MaskSpec = { name: string; label: string; color: string; imageUrl?: string };
 type MaskRows = { spec: MaskSpec; rows: number[][]; rowCount: number; width: number; height: number; activePixels: number };
 type RowSummary = { min: number; median: number; max: number };
 type RowBalanceStats = {
@@ -59,8 +59,18 @@ const POINT_SCALE_X = 3.3;
 const POINT_SCALE_Y = 1.2;
 const POINT_SCALE_Z = 3.3;
 const POINT_SIZE = 4.2;
-const FRONT_SPEC: MaskSpec = { name: 'Front +Z', text: 'WHAT WE SEE', color: '#e8f6ff' };
-const SIDE_SPEC: MaskSpec = { name: 'Right +X', text: 'WHAT EXISTS', color: '#fff3b0' };
+const FRONT_SPEC: MaskSpec = {
+  name: 'Front +Z',
+  label: 'GOOSE',
+  color: '#e8f6ff',
+  imageUrl: '/artifacts/reference-image/goose.jpg',
+};
+const SIDE_SPEC: MaskSpec = {
+  name: 'Right +X',
+  label: 'NUBZUKI',
+  color: '#fff3b0',
+  imageUrl: '/artifacts/reference-image/nubzuki.jpg',
+};
 const RNG_SEED = 4792026;
 
 app.innerHTML = `
@@ -68,23 +78,23 @@ app.innerHTML = `
     <section class="viewer-card">
       <canvas id="scene" aria-label="Shared 3D lenticular point cloud viewer"></canvas>
       <div class="hud">
-        <div><b id="phaseLabel">FRONT +Z</b><span id="phaseDetail">same points project to WHAT WE SEE</span></div>
+        <div><b id="phaseLabel">FRONT +Z</b><span id="phaseDetail">same points project to GOOSE reference image</span></div>
         <div class="metric" id="errorMetric">generating shared point cloud…</div>
       </div>
-      <div class="view-badge" id="viewBadge">WHAT WE SEE</div>
+      <div class="view-badge" id="viewBadge">GOOSE</div>
       <div class="story-strip" aria-hidden="true">
         <span><b>1</b> one shared BufferGeometry</span>
-        <span><b>2</b> front projection: x,y → WHAT WE SEE</span>
-        <span><b>3</b> side projection: z,y → WHAT EXISTS</span>
+        <span><b>2</b> front projection: x,y → goose image</span>
+        <span><b>3</b> side projection: z,y → nubzuki image</span>
       </div>
     </section>
     <aside class="panel">
       <p class="eyebrow">KAIST 3D Rendering Contest / 3D Lenticular Point Cloud</p>
       <h1>One Cloud, Multiple Readings</h1>
-      <p class="lead">핵심 조건을 수정했습니다. 이제 두 글씨는 별도 text field가 아니라 <b>동일한 점 하나하나</b>의 좌표 <code>(x,y,z)</code>를 공유합니다. 정면 정사영은 <code>(x,y)</code>로 <b>WHAT WE SEE</b>, 우측 정사영은 <code>(z,y)</code>로 <b>WHAT EXISTS</b>를 형성합니다.</p>
+      <p class="lead">이 브랜치는 글자 대신 <code>artifacts/reference-image</code>의 두 참조 이미지를 사용합니다. 두 이미지는 별도 billboard가 아니라 <b>동일한 점 하나하나</b>의 좌표 <code>(x,y,z)</code>를 공유합니다. 정면 정사영은 <code>(x,y)</code>로 <b>goose</b>, 우측 정사영은 <code>(z,y)</code>로 <b>nubzuki</b> 이미지를 형성합니다.</p>
       <div class="actions">
-        <button id="frontBtn" data-mode="front">Front +Z: WHAT WE SEE</button>
-        <button id="rightBtn" data-mode="right">Right +X: WHAT EXISTS</button>
+        <button id="frontBtn" data-mode="front">Front +Z: goose</button>
+        <button id="rightBtn" data-mode="right">Right +X: nubzuki</button>
         <button id="backBtn" data-mode="back">Back −Z: mirrored A</button>
         <button id="leftBtn" data-mode="left">Left −X: mirrored B</button>
         <button id="revealBtn" data-mode="reveal">3D reveal</button>
@@ -95,7 +105,7 @@ app.innerHTML = `
       <p class="hint" id="overlayHelp">Orthographic canonical views only: no opacity gating, no second point set, no hidden duplicate text. Rotate/reveal to inspect the single physical point cloud.</p>
       <p class="capture-status" id="captureStatus" role="status">Capture ready. Use Front/Right before PNG capture, or record a 10s rotation.</p>
       <section class="score-card"><h2>Invariant QA</h2><p class="qa-metric" id="invariantQaMetric">checking physical point-set invariant…</p></section>
-      <section class="score-card"><h2>수학적 정의</h2><ul><li>점 하나: <code>p=(x,y,z)</code></li><li>Front +Z projection: <code>πZ(p)=(x,y)</code> → WHAT WE SEE</li><li>Right +X projection: <code>πX(p)=(z,y)</code> → WHAT EXISTS</li><li>Back/Left는 같은 점의 좌우반전 projection</li></ul></section>
+      <section class="score-card"><h2>수학적 정의</h2><ul><li>점 하나: <code>p=(x,y,z)</code></li><li>Front +Z projection: <code>πZ(p)=(x,y)</code> → goose reference mask</li><li>Right +X projection: <code>πX(p)=(z,y)</code> → nubzuki reference mask</li><li>Back/Left는 같은 점의 좌우반전 projection</li></ul></section>
       <section class="score-card"><h2>확장 계획</h2><ul><li>4-view: 독립 4장은 제약이 강하므로 row/voxel matching + noise suppression로 근사</li><li>색 변화: view-dependent color 또는 per-point multi-channel encoding</li><li>빛 적용: 현재는 additive point shader, 다음 단계에서 shaded splat/instanced tiny spheres 비교</li></ul></section>
       <section class="score-card"><h2>우선 규정</h2><ul>${contestRules.map((r) => `<li><b>${r.title}</b> — ${r.implementationPolicy}</li>`).join('')}</ul></section>
     </aside>
@@ -143,7 +153,7 @@ function analyzeRowBalance(front: MaskRows, side: MaskRows): RowBalanceStats {
     if (hasSide) sideActiveRows += 1;
     if (hasFront && hasSide) {
       matchedRows += 1;
-      generatedCounts.push(Math.min(frontCount, sideCount));
+      generatedCounts.push(Math.max(frontCount, sideCount));
     } else if (hasFront) {
       frontOnly += 1;
     } else if (hasSide) {
@@ -163,7 +173,52 @@ function analyzeRowBalance(front: MaskRows, side: MaskRows): RowBalanceStats {
   };
 }
 
-function drawTextMask(spec: MaskSpec): MaskRows {
+function extractRowsFromCanvas(canvas: HTMLCanvasElement, active: (r: number, g: number, b: number, a: number) => boolean): number[][] {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('Cannot read 2D mask context');
+  const rows = Array.from({ length: ROW_COUNT }, () => [] as number[]);
+  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  for (let py = 0; py < canvas.height; py += SAMPLE_STRIDE) {
+    const row = Math.floor((py / (canvas.height - 1)) * (ROW_COUNT - 1));
+    for (let px = 0; px < canvas.width; px += SAMPLE_STRIDE) {
+      const idx = (py * canvas.width + px) * 4;
+      if (active(data[idx], data[idx + 1], data[idx + 2], data[idx + 3])) {
+        const x = ((px / (canvas.width - 1)) - 0.5) * POINT_SCALE_X;
+        rows[row].push(x);
+      }
+    }
+  }
+  return rows;
+}
+
+function rowsFromBooleanMask(activeMask: Uint8Array, width: number, height: number): number[][] {
+  const rows = Array.from({ length: ROW_COUNT }, () => [] as number[]);
+  for (let py = 0; py < height; py += SAMPLE_STRIDE) {
+    const row = Math.floor((py / (height - 1)) * (ROW_COUNT - 1));
+    for (let px = 0; px < width; px += SAMPLE_STRIDE) {
+      if (activeMask[py * width + px]) {
+        const x = ((px / (width - 1)) - 0.5) * POINT_SCALE_X;
+        rows[row].push(x);
+      }
+    }
+  }
+  return rows;
+}
+
+function countActivePixels(rows: number[][]) {
+  return rows.reduce((sum, row) => sum + row.length, 0);
+}
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error(`Cannot load reference image: ${url}`));
+    image.src = url;
+  });
+}
+
+function drawFallbackTextMask(spec: MaskSpec): MaskRows {
   const canvas = document.createElement('canvas');
   canvas.width = MASK_WIDTH;
   canvas.height = MASK_HEIGHT;
@@ -175,36 +230,39 @@ function drawTextMask(spec: MaskSpec): MaskRows {
   ctx.fillStyle = 'white';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  ctx.font = '900 104px Arial Black, Arial, sans-serif';
+  ctx.fillText(spec.label, canvas.width / 2, canvas.height / 2 + 6);
 
-  const words = spec.text.split(' ');
-  const fontSize = 104;
-  ctx.font = `900 ${fontSize}px Arial Black, Arial, sans-serif`;
-  const upper = words[0] ?? spec.text;
-  const lower = words.length >= 3 ? words.slice(1).join(' ') : words.length === 2 ? words[1] : '';
-  if (lower) {
-    ctx.fillText(upper, canvas.width / 2, canvas.height / 2 - 46);
-    ctx.fillText(lower, canvas.width / 2, canvas.height / 2 + 56);
-  } else {
-    ctx.fillText(spec.text, canvas.width / 2, canvas.height / 2 + 6);
-  }
+  const rows = extractRowsFromCanvas(canvas, (r) => r > 128);
+  return { spec, rows, rowCount: ROW_COUNT, width: canvas.width, height: canvas.height, activePixels: countActivePixels(rows) };
+}
 
-  const rows = Array.from({ length: ROW_COUNT }, () => [] as number[]);
-  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-  let activePixels = 0;
+async function drawReferenceImageMask(spec: MaskSpec): Promise<MaskRows> {
+  if (!spec.imageUrl) return drawFallbackTextMask(spec);
+  const image = await loadImage(spec.imageUrl);
+  const canvas = document.createElement('canvas');
+  canvas.width = MASK_WIDTH;
+  canvas.height = MASK_HEIGHT;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('Cannot create 2D image mask context');
 
-  for (let py = 0; py < canvas.height; py += SAMPLE_STRIDE) {
-    const row = Math.floor((py / (canvas.height - 1)) * (ROW_COUNT - 1));
-    for (let px = 0; px < canvas.width; px += SAMPLE_STRIDE) {
-      const idx = (py * canvas.width + px) * 4;
-      if (data[idx] > 128) {
-        const x = ((px / (canvas.width - 1)) - 0.5) * POINT_SCALE_X;
-        rows[row].push(x);
-        activePixels += 1;
-      }
-    }
-  }
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const margin = 20;
+  const scale = Math.min((canvas.width - margin * 2) / image.naturalWidth, (canvas.height - margin * 2) / image.naturalHeight);
+  const w = image.naturalWidth * scale;
+  const h = image.naturalHeight * scale;
+  ctx.drawImage(image, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
 
-  return { spec, rows, rowCount: ROW_COUNT, width: canvas.width, height: canvas.height, activePixels };
+  const rows = extractRowsFromCanvas(canvas, (r, g, b, a) => {
+    if (a < 64) return false;
+    const distanceFromWhite = Math.abs(255 - r) + Math.abs(255 - g) + Math.abs(255 - b);
+    const saturation = Math.max(r, g, b) - Math.min(r, g, b);
+    const darkInk = r + g + b < 700;
+    return distanceFromWhite > 34 || saturation > 22 || darkInk;
+  });
+
+  return { spec, rows, rowCount: ROW_COUNT, width: canvas.width, height: canvas.height, activePixels: countActivePixels(rows) };
 }
 
 function rowToY(row: number) {
@@ -230,13 +288,13 @@ function generateSharedPointCloud(front: MaskRows, side: MaskRows): GeneratedClo
     if (xs.length === 0 || zs.length === 0) continue;
     shuffleInPlace(xs, rand);
     shuffleInPlace(zs, rand);
-    const count = Math.min(xs.length, zs.length);
+    const count = Math.max(xs.length, zs.length);
     if (count <= 0) continue;
     rowsUsed += 1;
     const y = rowToY(row);
     for (let i = 0; i < count; i += 1) {
-      const x = xs[i];
-      const z = -zs[i];
+      const x = xs[i % xs.length];
+      const z = -zs[i % zs.length];
       positions.push(x, y, z);
       const tint = 0.35 + 0.45 * rand();
       mixed.copy(colorA).lerp(colorB, (z / POINT_SCALE_Z) + 0.5).multiplyScalar(tint + 0.45);
@@ -251,8 +309,8 @@ function generateSharedPointCloud(front: MaskRows, side: MaskRows): GeneratedClo
     colors: new Float32Array(colors),
     stats: {
       points: positions.length / 3,
-      frontCoverage: frontUsed / Math.max(1, front.activePixels),
-      sideCoverage: sideUsed / Math.max(1, side.activePixels),
+      frontCoverage: Math.min(1, frontUsed / Math.max(1, front.activePixels)),
+      sideCoverage: Math.min(1, sideUsed / Math.max(1, side.activePixels)),
       rowsUsed,
       rowCount: ROW_COUNT,
       rowBalance,
@@ -269,8 +327,8 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05070d);
 scene.fog = new THREE.Fog(0x05070d, 7, 14);
 
-const frontMask = drawTextMask(FRONT_SPEC);
-const sideMask = drawTextMask(SIDE_SPEC);
+const frontMask = await drawReferenceImageMask(FRONT_SPEC);
+const sideMask = await drawReferenceImageMask(SIDE_SPEC);
 const cloud = generateSharedPointCloud(frontMask, sideMask);
 
 const geometry = new THREE.BufferGeometry();
@@ -369,8 +427,8 @@ function buildLenticularQa(): LenticularQa {
     rowsUsed: cloud.stats.rowsUsed,
     rowBalance: Object.freeze(cloud.stats.rowBalance),
     projectionLabels: Object.freeze({
-      front: 'Front +Z orthographic projection: (x,y) => WHAT WE SEE',
-      right: 'Right +X orthographic projection: (z,y) => WHAT EXISTS',
+      front: `Front +Z orthographic projection: (x,y) => ${FRONT_SPEC.label}`,
+      right: `Right +X orthographic projection: (z,y) => ${SIDE_SPEC.label}`,
     }),
     scenePointsCount,
     pointCloudUsesSharedGeometry,
@@ -422,11 +480,11 @@ let start = 0;
 let autoTheta = 0;
 
 const viewDefs: Record<ViewMode, { pos: THREE.Vector3; label: string; detail: string; badge: string; grid: boolean }> = {
-  front: { pos: new THREE.Vector3(0, 0, 6), label: 'FRONT +Z', detail: 'same points project (x,y) to WHAT WE SEE', badge: 'WHAT WE SEE', grid: false },
-  right: { pos: new THREE.Vector3(6, 0, 0), label: 'RIGHT +X', detail: 'same points project (z,y) to WHAT EXISTS', badge: 'WHAT EXISTS', grid: false },
-  back: { pos: new THREE.Vector3(0, 0, -6), label: 'BACK −Z', detail: 'same points, mirrored front projection', badge: 'mirror: WHAT WE SEE', grid: false },
-  left: { pos: new THREE.Vector3(-6, 0, 0), label: 'LEFT −X', detail: 'same points, mirrored side projection', badge: 'mirror: WHAT EXISTS', grid: false },
-  reveal: { pos: new THREE.Vector3(4.6, 2.1, 5.1), label: '3D REVEAL', detail: 'the physical cloud is neither text by itself', badge: 'single 3D point cloud', grid: true },
+  front: { pos: new THREE.Vector3(0, 0, 6), label: 'FRONT +Z', detail: 'same points project (x,y) to goose reference image', badge: 'GOOSE', grid: false },
+  right: { pos: new THREE.Vector3(6, 0, 0), label: 'RIGHT +X', detail: 'same points project (z,y) to nubzuki reference image', badge: 'NUBZUKI', grid: false },
+  back: { pos: new THREE.Vector3(0, 0, -6), label: 'BACK −Z', detail: 'same points, mirrored goose projection', badge: 'mirror: GOOSE', grid: false },
+  left: { pos: new THREE.Vector3(-6, 0, 0), label: 'LEFT −X', detail: 'same points, mirrored nubzuki projection', badge: 'mirror: NUBZUKI', grid: false },
+  reveal: { pos: new THREE.Vector3(4.6, 2.1, 5.1), label: '3D REVEAL', detail: 'the physical cloud is neither flat image by itself', badge: 'single 3D point cloud', grid: true },
   orbit: { pos: new THREE.Vector3(4.6, 2.1, 5.1), label: 'ORBIT', detail: 'drag to inspect the one shared point set', badge: 'free orbit', grid: true },
 };
 
@@ -486,10 +544,10 @@ function animate(now: number) {
     controls.target.set(0, 0, 0);
     const deg = ((autoTheta * 180) / Math.PI) % 360;
     phaseLabel.textContent = '10s ROTATION';
-    if (deg < 45 || deg > 315) viewBadge.textContent = 'WHAT WE SEE';
-    else if (deg > 45 && deg < 135) viewBadge.textContent = 'WHAT EXISTS';
-    else if (deg > 135 && deg < 225) viewBadge.textContent = 'mirrored A';
-    else viewBadge.textContent = 'mirrored B';
+    if (deg < 45 || deg > 315) viewBadge.textContent = 'GOOSE';
+    else if (deg > 45 && deg < 135) viewBadge.textContent = 'NUBZUKI';
+    else if (deg > 135 && deg < 225) viewBadge.textContent = 'mirrored GOOSE';
+    else viewBadge.textContent = 'mirrored NUBZUKI';
     phaseDetail.textContent = 'same cloud rotating through front/right/back/left projections';
     if (t >= 1) setView('front');
   }
