@@ -139,9 +139,9 @@ Latest algorithm implementation checks:
 - `npm run harness`: PASS
 - `npm run harness:algorithm`: PASS
 - `npm run harness:algorithm:require-production`: PASS
-- `npm run qa:submission`: PASS, report `artifacts/final-qa-20260518T134151Z.json`
+- `npm run qa:submission`: PASS, report `artifacts/final-qa-20260518T140357Z.json`
 - Browser console in the dev app: no JS errors
-- Runtime QA: `scenePointsCount=1`, shared geometry PASS, `projectionOnlyPointCount=0`, `noProjectionOnlyPoints=true`, `rowPolicy=quantile_max/sorted-midpoint-quantile`, `colorPolicy=cosine_s1-directional-color`
+- Runtime QA: `scenePointsCount=1`, shared geometry PASS, `projectionOnlyPointCount=0`, `noProjectionOnlyPoints=true`, `rowPolicy=quantile_max/sorted-midpoint-quantile`, `yJitter=deterministic-low-discrepancy-y-jitter@0.42`, `colorPolicy=cosine_s1-directional-color`
 
 Latest algorithm evidence:
 
@@ -150,13 +150,18 @@ artifacts/algorithm-implementation/front-quantile-directional-20260518.png
 artifacts/algorithm-implementation/right-quantile-directional-20260518.png
 artifacts/algorithm-implementation/reveal-quantile-directional-20260518.png
 artifacts/algorithm-implementation/browser-qa-20260518.json
+artifacts/algorithm-implementation/front-jitter-splat-20260518.png
+artifacts/algorithm-implementation/right-jitter-splat-20260518.png
+artifacts/algorithm-implementation/reveal-jitter-splat-20260518.png
+artifacts/algorithm-implementation/browser-qa-jitter-splat-20260518.json
 ```
 
 Observed quality:
 
 - Front goose remains recognizable and now uses front endpoint colors in the front view.
 - Right image/cake-side view is recognizable with endpoint color present.
-- Remaining visual weakness: horizontal row banding/scanline artifacts and sparse/jagged edges are still visible; side coverage remains about 75.7% due to unmatched side-only rows.
+- Latest tuned jitter/splat pass (`SUB_ROW_JITTER_SCALE=0.42`, `POINT_SIZE=2.55`, `uAlpha=0.72`) is acceptable to keep: front/right readability remains good, reveal feels more solid, and one-cloud invariant remains clear.
+- Remaining visual weakness: horizontal row banding/scanline artifacts are still visible; side coverage remains about 75.7% due to unmatched side-only rows.
 
 ## Next likely task
 

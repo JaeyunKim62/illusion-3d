@@ -30,6 +30,7 @@ type CloudStats = {
   colorPolicy: 'cosine_s1 directional color from frontColor/sideColor endpoint attributes';
   rowMaterializationPolicy: 'quantile_max';
   rowOrderPolicy: 'sorted-midpoint-quantile';
+  subRowJitterPolicy: 'deterministic-low-discrepancy-y-jitter';
 };
 type LenticularQa = {
   seed: number;
@@ -44,6 +45,10 @@ type LenticularQa = {
   projectionOnlyPointCount: 0;
   noProjectionOnlyPoints: true;
   backgroundNoisePolicy: 'no projection-only points; every rendered point must be paired from front and side masks';
+  rowMaterializationPolicy: 'quantile_max';
+  rowOrderPolicy: 'sorted-midpoint-quantile';
+  subRowJitterPolicy: 'deterministic-low-discrepancy-y-jitter';
+  subRowJitterScale: number;
   scenePointsCount: number;
   pointCloudUsesSharedGeometry: boolean;
   geometryAttributes: Readonly<{
@@ -88,8 +93,9 @@ const SAMPLE_STRIDE = 1;
 const POINT_SCALE_X = 3.3;
 const POINT_SCALE_Y = 1.2;
 const POINT_SCALE_Z = 3.3;
-const POINT_SIZE = 2.25;
+const POINT_SIZE = 2.55;
 const VIEW_HALF_HEIGHT = 1.48;
+const SUB_ROW_JITTER_SCALE = 0.42;
 const FRONT_SPEC: MaskSpec = {
   name: 'Front +Z',
   label: 'GOOSE',
@@ -307,8 +313,14 @@ async function drawReferenceImageMask(spec: MaskSpec): Promise<MaskRows> {
   return { spec, rows, rowCount: ROW_COUNT, width: canvas.width, height: canvas.height, activePixels: countActivePixels(rows) };
 }
 
-function rowToY(row: number) {
-  return (0.5 - row / (ROW_COUNT - 1)) * POINT_SCALE_Y;
+function rowToY(row: number, jitter = 0) {
+  const rowHeight = POINT_SCALE_Y / Math.max(1, ROW_COUNT - 1);
+  return (0.5 - row / (ROW_COUNT - 1)) * POINT_SCALE_Y + jitter * rowHeight * SUB_ROW_JITTER_SCALE;
+}
+
+function subRowJitter(row: number, pointIndex: number) {
+  const phase = (row * 0.38196601125 + pointIndex * 0.61803398875) % 1;
+  return phase - 0.5;
 }
 
 function quantileIndex(k: number, sourceLength: number, targetLength: number) {
@@ -331,8 +343,8 @@ function generateSharedPointCloud(front: MaskRows, side: MaskRows): GeneratedClo
     const count = Math.max(frontSamples.length, sideSamples.length);
     if (count <= 0) continue;
     rowsUsed += 1;
-    const y = rowToY(row);
     for (let i = 0; i < count; i += 1) {
+      const y = rowToY(row, subRowJitter(row, i));
       const frontSample = frontSamples[quantileIndex(i, frontSamples.length, count)];
       const sideSample = sideSamples[quantileIndex(i, sideSamples.length, count)];
       const x = frontSample.coord;
@@ -363,6 +375,7 @@ function generateSharedPointCloud(front: MaskRows, side: MaskRows): GeneratedClo
       colorPolicy: 'cosine_s1 directional color from frontColor/sideColor endpoint attributes',
       rowMaterializationPolicy: 'quantile_max',
       rowOrderPolicy: 'sorted-midpoint-quantile',
+      subRowJitterPolicy: 'deterministic-low-discrepancy-y-jitter',
     },
   };
 }
@@ -389,7 +402,7 @@ geometry.computeBoundingSphere();
 const material = new THREE.ShaderMaterial({
   uniforms: {
     uSize: { value: POINT_SIZE * Math.min(devicePixelRatio, 2) },
-    uAlpha: { value: 0.78 },
+    uAlpha: { value: 0.72 },
     uSideWeight: { value: 0 },
   },
   vertexShader: `
@@ -500,6 +513,10 @@ function buildLenticularQa(): LenticularQa {
     projectionOnlyPointCount: 0,
     noProjectionOnlyPoints: true,
     backgroundNoisePolicy: 'no projection-only points; every rendered point must be paired from front and side masks',
+    rowMaterializationPolicy: cloud.stats.rowMaterializationPolicy,
+    rowOrderPolicy: cloud.stats.rowOrderPolicy,
+    subRowJitterPolicy: cloud.stats.subRowJitterPolicy,
+    subRowJitterScale: SUB_ROW_JITTER_SCALE,
     scenePointsCount,
     pointCloudUsesSharedGeometry,
     geometryAttributes: Object.freeze({
@@ -725,7 +742,7 @@ requestAnimationFrame(animate);
 
 const qa = window.__LENTICULAR_QA__;
 errorMetric.textContent = `same points: ${cloud.stats.points.toLocaleString()} / matched rows: ${cloud.stats.rowsUsed}/${cloud.stats.rowCount} / active-row overlap: ${(cloud.stats.rowBalance.matchedRowRatio * 100).toFixed(1)}% / row density min-med-max: ${cloud.stats.rowBalance.generatedPointsPerMatchedRow.min}-${cloud.stats.rowBalance.generatedPointsPerMatchedRow.median}-${cloud.stats.rowBalance.generatedPointsPerMatchedRow.max} / coverage F/S: ${(cloud.stats.frontCoverage * 100).toFixed(1)}%/${(cloud.stats.sideCoverage * 100).toFixed(1)}%`;
-invariantQaMetric.textContent = `Physical cloud: ${qa.scenePointsCount} THREE.Points object using 1 shared BufferGeometry (${qa.geometryAttributes.names.join(' + ')} attributes, count=${qa.pointCount.toLocaleString()}). Row QA: active rows F/S/M=${qa.rowBalance.activeRows.front}/${qa.rowBalance.activeRows.side}/${qa.rowBalance.activeRows.matched}; drops F-only/S-only/empty=${qa.rowBalance.rowMismatches.frontOnly}/${qa.rowBalance.rowMismatches.sideOnly}/${qa.rowBalance.rowMismatches.emptyBoth}; sampled active pixels F/S=${qa.rowBalance.activePixels.front.toLocaleString()}/${qa.rowBalance.activePixels.side.toLocaleString()}. Shared-space QA: projectionCount=${qa.projectionCount}, projectionOnlyPointCount=${qa.projectionOnlyPointCount}, noProjectionOnlyPoints=${qa.noProjectionOnlyPoints}; policy=${qa.backgroundNoisePolicy}; rowPolicy=${cloud.stats.rowMaterializationPolicy}/${cloud.stats.rowOrderPolicy}; colorPolicy=${qa.visualStyle.colorPolicy}. Style QA: ${qa.visualStyle.colorSource}, shaderGlowOnly=${qa.visualStyle.shaderGlowOnly}, viewOpacityGate=${qa.visualStyle.viewDependentOpacityGate}, depthGate=${qa.visualStyle.depthTestReadingGate}. Helper axes/grid may have their own line geometries, but they are not point sets. Point-cloud invariant: ${qa.pointCloudInvariantHolds ? 'PASS' : 'FAIL'}.`;
+invariantQaMetric.textContent = `Physical cloud: ${qa.scenePointsCount} THREE.Points object using 1 shared BufferGeometry (${qa.geometryAttributes.names.join(' + ')} attributes, count=${qa.pointCount.toLocaleString()}). Row QA: active rows F/S/M=${qa.rowBalance.activeRows.front}/${qa.rowBalance.activeRows.side}/${qa.rowBalance.activeRows.matched}; drops F-only/S-only/empty=${qa.rowBalance.rowMismatches.frontOnly}/${qa.rowBalance.rowMismatches.sideOnly}/${qa.rowBalance.rowMismatches.emptyBoth}; sampled active pixels F/S=${qa.rowBalance.activePixels.front.toLocaleString()}/${qa.rowBalance.activePixels.side.toLocaleString()}. Shared-space QA: projectionCount=${qa.projectionCount}, projectionOnlyPointCount=${qa.projectionOnlyPointCount}, noProjectionOnlyPoints=${qa.noProjectionOnlyPoints}; policy=${qa.backgroundNoisePolicy}; rowPolicy=${cloud.stats.rowMaterializationPolicy}/${cloud.stats.rowOrderPolicy}; yJitter=${cloud.stats.subRowJitterPolicy}@${SUB_ROW_JITTER_SCALE}; colorPolicy=${qa.visualStyle.colorPolicy}. Style QA: ${qa.visualStyle.colorSource}, shaderGlowOnly=${qa.visualStyle.shaderGlowOnly}, viewOpacityGate=${qa.visualStyle.viewDependentOpacityGate}, depthGate=${qa.visualStyle.depthTestReadingGate}. Helper axes/grid may have their own line geometries, but they are not point sets. Point-cloud invariant: ${qa.pointCloudInvariantHolds ? 'PASS' : 'FAIL'}.`;
 setView('front');
 
 (document.querySelector('#shotBtn') as HTMLButtonElement).onclick = () => {

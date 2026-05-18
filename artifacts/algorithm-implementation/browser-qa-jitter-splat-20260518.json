@@ -1,0 +1,64 @@
+{
+  "seed": 4792026,
+  "maskDimensions": {
+    "width": 960,
+    "height": 280,
+    "sampleStride": 1
+  },
+  "rowCount": 190,
+  "pointCount": 20797,
+  "coverage": {
+    "front": 1,
+    "side": 0.7566672730580316
+  },
+  "rowsUsed": 144,
+  "rowBalance": {
+    "activeRows": {
+      "front": 144,
+      "side": 190,
+      "matched": 144
+    },
+    "matchedRowRatio": 0.7578947368421053,
+    "rowMismatches": {
+      "frontOnly": 0,
+      "sideOnly": 46,
+      "emptyBoth": 0
+    },
+    "generatedPointsPerMatchedRow": {
+      "min": 21,
+      "median": 154,
+      "max": 316
+    },
+    "activePixels": {
+      "front": 6543,
+      "side": 27485
+    }
+  },
+  "projectionCount": 2,
+  "projectionOnlyPointCount": 0,
+  "noProjectionOnlyPoints": true,
+  "rowMaterializationPolicy": "quantile_max",
+  "rowOrderPolicy": "sorted-midpoint-quantile",
+  "subRowJitterPolicy": "deterministic-low-discrepancy-y-jitter",
+  "subRowJitterScale": 0.42,
+  "pointSize": 2.55,
+  "alpha": 0.72,
+  "scenePointsCount": 1,
+  "pointCloudUsesSharedGeometry": true,
+  "geometryAttributes": {
+    "names": ["frontColor", "position", "sideColor"],
+    "positionCount": 20797,
+    "frontColorCount": 20797,
+    "sideColorCount": 20797
+  },
+  "visualStyle": {
+    "colorSource": "frontColor/sideColor endpoint attributes",
+    "colorPolicy": "cosine_s1-directional-color",
+    "shaderGlowOnly": true,
+    "viewDependentOpacityGate": false,
+    "depthTestReadingGate": false
+  },
+  "pointCloudInvariantHolds": true,
+  "browserConsoleErrors": [],
+  "visualVerdict": "keep: tuned jitter/splat improves solidity, banding remains visible"
+}
