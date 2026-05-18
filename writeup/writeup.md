@@ -93,7 +93,7 @@ viewDependentOpacityGate: false
 depthTestReadingGate: false
 ```
 
-This improves endpoint color fidelity for both readings while preserving the one-cloud invariant. A small deterministic sub-row y jitter, slightly larger/lower-alpha splat, and subtle point-size jitter soften the rigid row-scanline look without adding any new points or view gates. A tested alpha-jitter variant was rejected because it added speckled noise without meaningful banding reduction. Future color passes must still avoid view-dependent opacity, hidden geometry, texture swaps, or duplicated point fields.
+This improves endpoint color fidelity for both readings while preserving the one-cloud invariant. The current visual pass keeps a moderate row-spacing expansion (`POINT_SCALE_Y=1.28`) plus deterministic sub-row y jitter, subtle point-size jitter, and a softer/larger splat (`POINT_SIZE=2.65`, `POINT_ALPHA=0.68`) to reduce the harshness of the row-scanline look without adding points or view gates. A wider `POINT_SCALE_Y=1.38` spacing was rejected because the bands became too dominant, and an alpha-jitter variant was rejected because it added speckled noise without meaningful banding reduction. Future color passes must still avoid view-dependent opacity, hidden geometry, texture swaps, or duplicated point fields.
 
 ### 3.4 Viewer and capture controls
 

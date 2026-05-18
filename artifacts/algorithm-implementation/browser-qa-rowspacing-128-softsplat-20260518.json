@@ -1,0 +1,46 @@
+{
+  "iteration": 8,
+  "experiment": "soften the kept 1.28 row spacing with larger/lower-alpha splats and expose tuning in runtime QA",
+  "change": {
+    "POINT_SCALE_Y": 1.28,
+    "VIEW_HALF_HEIGHT": 1.54,
+    "POINT_SIZE": 2.65,
+    "POINT_ALPHA": 0.68,
+    "SUB_ROW_JITTER_SCALE": 0.42,
+    "POINT_SIZE_JITTER": 0.10
+  },
+  "decision": "keep as current final visual tuning",
+  "browserVisionVerdict": {
+    "front": "keep; more filled and cohesive than 2.55/0.72, near upper blur limit",
+    "right": "keep with caution; side readability and coverage improve, mild blur accepted",
+    "reveal": "keep; one-cloud reveal preserved and perceived solidity improves"
+  },
+  "runtimeQa": {
+    "pointCount": 20797,
+    "projectionOnlyPointCount": 0,
+    "noProjectionOnlyPoints": true,
+    "scenePointsCount": 1,
+    "pointCloudUsesSharedGeometry": true,
+    "geometryAttributes": ["frontColor", "position", "sideColor"],
+    "rowMaterializationPolicy": "quantile_max",
+    "rowOrderPolicy": "sorted-midpoint-quantile",
+    "colorPolicy": "cosine_s1-directional-color",
+    "viewDependentOpacityGate": false,
+    "depthTestReadingGate": false,
+    "pointCloudInvariantHolds": true,
+    "browserConsoleErrors": []
+  },
+  "metricSummary": {
+    "frontBandingIndexBefore": 0.8918,
+    "frontBandingIndexAfter": 0.8769,
+    "note": "metrics are heuristic; browser visual QA is primary"
+  },
+  "evidence": {
+    "front": "artifacts/algorithm-implementation/front-rowspacing-128-softsplat-20260518.png",
+    "right": "artifacts/algorithm-implementation/right-rowspacing-128-softsplat-20260518.png",
+    "reveal": "artifacts/algorithm-implementation/reveal-rowspacing-128-softsplat-20260518.png",
+    "metrics": "artifacts/algorithm-implementation/visual-metrics-iteration8-softsplat-20260518.json",
+    "finalQa": "artifacts/final-qa-20260518T144434Z.json"
+  },
+  "remainingWeakness": "horizontal banding remains visible; do not increase point size much further"
+}

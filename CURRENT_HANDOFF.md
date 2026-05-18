@@ -139,10 +139,10 @@ Latest algorithm implementation checks:
 - `npm run harness`: PASS
 - `npm run harness:algorithm`: PASS
 - `npm run harness:algorithm:require-production`: PASS
-- `npm run qa:submission`: PASS, report `artifacts/final-qa-20260518T142208Z.json`
-- `npm run qa:visual-metrics -- ...`: PASS, reports `artifacts/algorithm-implementation/visual-metrics-iteration3-20260518.json` and `artifacts/algorithm-implementation/visual-metrics-iteration4-20260518.json`
+- `npm run qa:submission`: PASS, report `artifacts/final-qa-20260518T144434Z.json`
+- `npm run qa:visual-metrics -- ...`: PASS, reports include `artifacts/algorithm-implementation/visual-metrics-iteration8-softsplat-20260518.json`
 - Browser console in the dev app: no JS errors
-- Runtime QA: `scenePointsCount=1`, shared geometry PASS, `projectionOnlyPointCount=0`, `noProjectionOnlyPoints=true`, `rowPolicy=quantile_max/sorted-midpoint-quantile`, `yJitter=deterministic-low-discrepancy-y-jitter@0.42`, `sizeJitter=±0.10`, `colorPolicy=cosine_s1-directional-color`
+- Runtime QA: `scenePointsCount=1`, shared geometry PASS, `projectionOnlyPointCount=0`, `noProjectionOnlyPoints=true`, `rowPolicy=quantile_max/sorted-midpoint-quantile`, `yJitter=deterministic-low-discrepancy-y-jitter@0.42`, `sizeJitter=±0.10`, `pointScaleY=1.28`, `pointSize=2.65`, `alpha=0.68`, `colorPolicy=cosine_s1-directional-color`
 
 Latest algorithm evidence:
 
@@ -163,15 +163,28 @@ artifacts/algorithm-implementation/browser-qa-sizejitter-20260518.json
 artifacts/algorithm-implementation/visual-metrics-iteration4-20260518.json
 artifacts/algorithm-implementation/front-alpha-jitter-rejected-20260518.png
 artifacts/algorithm-implementation/browser-qa-alpha-jitter-rejected-20260518.json
+artifacts/algorithm-implementation/front-rowspacing-wide-rejected-20260518.png
+artifacts/algorithm-implementation/right-rowspacing-wide-rejected-20260518.png
+artifacts/algorithm-implementation/browser-qa-rowspacing-wide-rejected-20260518.json
+artifacts/algorithm-implementation/front-rowspacing-128-20260518.png
+artifacts/algorithm-implementation/right-rowspacing-128-20260518.png
+artifacts/algorithm-implementation/reveal-rowspacing-128-20260518.png
+artifacts/algorithm-implementation/browser-qa-rowspacing-128-20260518.json
+artifacts/algorithm-implementation/front-rowspacing-128-softsplat-20260518.png
+artifacts/algorithm-implementation/right-rowspacing-128-softsplat-20260518.png
+artifacts/algorithm-implementation/reveal-rowspacing-128-softsplat-20260518.png
+artifacts/algorithm-implementation/browser-qa-rowspacing-128-softsplat-20260518.json
+artifacts/algorithm-implementation/visual-metrics-iteration8-softsplat-20260518.json
 ```
 
 Observed quality:
 
 - Front goose remains recognizable and now uses front endpoint colors in the front view.
 - Right image/cake-side view is recognizable with endpoint color present.
-- Latest tuned jitter/splat pass (`SUB_ROW_JITTER_SCALE=0.42`, `POINT_SIZE=2.55`, `uAlpha=0.72`, `POINT_SIZE_JITTER=0.10`) is acceptable to keep: front/right readability remains good, reveal feels more solid/natural, and one-cloud invariant remains clear.
+- Latest tuned pass (`POINT_SCALE_Y=1.28`, `VIEW_HALF_HEIGHT=1.54`, `SUB_ROW_JITTER_SCALE=0.42`, `POINT_SIZE=2.65`, `uAlpha=0.68`, `POINT_SIZE_JITTER=0.10`) is acceptable to keep: front/right readability remains good, reveal feels more solid/natural, and one-cloud invariant remains clear.
+- Row spacing experiment result: aggressive `POINT_SCALE_Y=1.38` made bands too dominant and was rejected; intermediate `1.28` is the current best compromise.
 - Remaining visual weakness: horizontal row banding/scanline artifacts are still visible; side coverage remains about 75.7% due to unmatched side-only rows.
-- Rejected experiment: deterministic alpha jitter ±0.08 added visible mottled/speckled noise without reducing banding enough, so it was reverted; final state keeps iteration4 point-size jitter only.
+- Rejected experiment: deterministic alpha jitter ±0.08 added visible mottled/speckled noise without reducing banding enough, so it was reverted; final state keeps deterministic point-size jitter only.
 
 ## Next likely task
 
