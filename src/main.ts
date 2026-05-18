@@ -1,95 +1,142 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import config from '../scene_config.json';
 import { contestRules } from './contestRules.ts';
 import './styles.css';
 
-type Vec2 = [number, number];
-type RoomKey = keyof typeof config.room.layout;
-type Keyframe = { time: number; position: THREE.Vector3; target: THREE.Vector3; phase: string };
-type ViewMode = 'play' | 'reference' | 'reveal' | 'orbit';
-type OverlayMode = 'off' | 'ghost' | 'rays' | 'all';
+type ViewMode = 'front' | 'right' | 'back' | 'left' | 'reveal' | 'orbit';
+type MaskSpec = { name: string; label: string; color: string; imageUrl?: string };
+type Rgb = readonly [number, number, number];
+type MaskSample = { coord: number; color: Rgb };
+type MaskRows = { spec: MaskSpec; rows: MaskSample[][]; rowCount: number; width: number; height: number; activePixels: number };
+type RowSummary = { min: number; median: number; max: number };
+type RowBalanceStats = {
+  activeRows: Readonly<{ front: number; side: number; matched: number }>;
+  matchedRowRatio: number;
+  rowMismatches: Readonly<{ frontOnly: number; sideOnly: number; emptyBoth: number }>;
+  generatedPointsPerMatchedRow: Readonly<RowSummary>;
+  activePixels: Readonly<{ front: number; side: number }>;
+};
+type CloudStats = {
+  points: number;
+  frontCoverage: number;
+  sideCoverage: number;
+  rowsUsed: number;
+  rowCount: number;
+  rowBalance: RowBalanceStats;
+  projectionCount: 2;
+  projectionOnlyPointCount: 0;
+  noProjectionOnlyPoints: true;
+  backgroundNoisePolicy: 'no projection-only points; every rendered point must be paired from front and side masks';
+  colorPolicy: 'fixed per-point RGB sampled from both reference images and blended in shared space';
+};
+type LenticularQa = {
+  seed: number;
+  maskDimensions: Readonly<{ width: number; height: number; sampleStride: number }>;
+  rowCount: number;
+  pointCount: number;
+  coverage: Readonly<{ front: number; side: number }>;
+  rowsUsed: number;
+  rowBalance: Readonly<RowBalanceStats>;
+  projectionLabels: Readonly<{ front: string; right: string }>;
+  projectionCount: 2;
+  projectionOnlyPointCount: 0;
+  noProjectionOnlyPoints: true;
+  backgroundNoisePolicy: 'no projection-only points; every rendered point must be paired from front and side masks';
+  scenePointsCount: number;
+  pointCloudUsesSharedGeometry: boolean;
+  geometryAttributes: Readonly<{
+    names: readonly string[];
+    positionCount: number;
+    positionItemSize: number;
+    colorCount: number;
+    colorItemSize: number;
+  }>;
+  visualStyle: Readonly<{
+    colorSource: 'fixed-per-point-attribute';
+    colorPolicy: 'reference-rgb-shared-blend';
+    shaderGlowOnly: boolean;
+    viewDependentOpacityGate: boolean;
+    depthTestReadingGate: boolean;
+  }>;
+  pointCloudInvariantHolds: boolean;
+};
+
+declare global {
+  interface Window {
+    __LENTICULAR_QA__: LenticularQa;
+  }
+}
+
+type GeneratedCloud = {
+  positions: Float32Array;
+  colors: Float32Array;
+  stats: CloudStats;
+};
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('Missing #app root');
 
+const MASK_WIDTH = 960;
+const MASK_HEIGHT = 280;
+const ROW_COUNT = 190;
+const SAMPLE_STRIDE = 1;
+const POINT_SCALE_X = 3.3;
+const POINT_SCALE_Y = 1.2;
+const POINT_SCALE_Z = 3.3;
+const POINT_SIZE = 2.25;
+const VIEW_HALF_HEIGHT = 1.48;
+const FRONT_SPEC: MaskSpec = {
+  name: 'Front +Z',
+  label: 'GOOSE',
+  color: '#e8f6ff',
+  imageUrl: '/artifacts/reference-image/goose.jpg',
+};
+const SIDE_SPEC: MaskSpec = {
+  name: 'Right +X',
+  label: 'NUBZUKI',
+  color: '#fff3b0',
+  imageUrl: '/artifacts/reference-image/nubzuki.jpg',
+};
+const RNG_SEED = 4792026;
+
 app.innerHTML = `
   <main class="app-shell">
     <section class="viewer-card">
-      <canvas id="scene" aria-label="Perceptual Twin Room WebGL viewer"></canvas>
+      <canvas id="scene" aria-label="Shared 3D lenticular point cloud viewer"></canvas>
       <div class="hud">
-        <div><b id="phaseLabel">reference camera</b><span id="phaseDetail">WHAT WE SEE alignment</span></div>
-        <div class="metric" id="errorMetric">mean reprojection error: measuring…</div>
+        <div><b id="phaseLabel">FRONT +Z</b><span id="phaseDetail">same points project to GOOSE reference image</span></div>
+        <div class="metric" id="errorMetric">generating shared point cloud…</div>
       </div>
-      <div class="ending" id="endingText">WHAT WE SEE <b>≠</b> WHAT EXISTS</div>
+      <div class="view-badge" id="viewBadge">GOOSE</div>
       <div class="story-strip" aria-hidden="true">
-        <span><b>1</b> align to reference view</span>
-        <span><b>2</b> room reads normal</span>
-        <span><b>3</b> side view reveals distortion</span>
+        <span><b>1</b> one shared BufferGeometry</span>
+        <span><b>2</b> front projection: x,y → goose image</span>
+        <span><b>3</b> side projection: z,y → nubzuki image</span>
       </div>
     </section>
     <aside class="panel">
-      <p class="eyebrow">KAIST 3D Rendering Contest / Procedural WebGL</p>
-      <h1>${config.projectTitle}</h1>
-      <p class="lead">기준 카메라의 2D 지각 목표를 3D ray로 역투영해 만든 왜곡 방입니다. 정면에서는 <b>WHAT WE SEE</b>와 정상 방처럼 보이고, 옆으로 이동하면 실제 geometry가 드러납니다.</p>
+      <p class="eyebrow">KAIST 3D Rendering Contest / 3D Lenticular Point Cloud</p>
+      <h1>One Cloud, Multiple Readings</h1>
+      <p class="lead">이 브랜치는 글자 대신 <code>artifacts/reference-image</code>의 두 참조 이미지를 사용합니다. 두 이미지는 별도 billboard가 아니라 <b>동일한 점 하나하나</b>의 좌표 <code>(x,y,z)</code>를 공유합니다. 정면 정사영은 <code>(x,y)</code>로 <b>goose</b>, 우측 정사영은 <code>(z,y)</code>로 <b>nubzuki</b> 이미지를 형성합니다.</p>
       <div class="actions">
-        <button id="playBtn" data-mode="play">10초 영상 재생</button>
-        <button id="referenceBtn" data-mode="reference">기준 시점</button>
-        <button id="revealBtn" data-mode="reveal">왜곡 reveal</button>
+        <button id="frontBtn" data-mode="front">Front +Z: goose</button>
+        <button id="rightBtn" data-mode="right">Right +X: nubzuki</button>
+        <button id="backBtn" data-mode="back">Back −Z: mirrored A</button>
+        <button id="leftBtn" data-mode="left">Left −X: mirrored B</button>
+        <button id="revealBtn" data-mode="reveal">3D reveal</button>
         <button id="orbitBtn" data-mode="orbit">자유 Orbit</button>
-        <button id="wireBtn" data-overlay="off">Overlay: Off</button>
         <button id="shotBtn">PNG 캡처</button>
         <button id="recordBtn">10초 WebM 녹화</button>
       </div>
-      <p class="hint" id="overlayHelp">Overlay groups are separated: Off → Ghost room → Rays → All. Active view buttons stay highlighted.</p>
-      <p class="capture-status" id="captureStatus" role="status">Capture ready: PNG representative image or a bounded 10s WebM from timeline t=0.</p>
-      <section class="score-card"><h2>구현 목표</h2><ul><li>Reference camera와 render camera 분리</li><li>back-project / project reprojection error 표시</li><li>Anamorphic text, distorted room, same-size spheres, rays/wireframe 포함</li></ul></section>
+      <p class="hint" id="overlayHelp">Orthographic canonical views only: no opacity gating, no second point set, no hidden duplicate text. Rotate/reveal to inspect the single physical point cloud.</p>
+      <p class="capture-status" id="captureStatus" role="status">Capture ready. Use Front/Right before PNG capture, or record a 10s rotation.</p>
+      <section class="score-card"><h2>Invariant QA</h2><p class="qa-metric" id="invariantQaMetric">checking physical point-set invariant…</p></section>
+      <section class="score-card"><h2>수학적 정의</h2><ul><li>점 하나: <code>p=(x,y,z)</code></li><li>Front +Z projection: <code>πZ(p)=(x,y)</code> → goose reference mask</li><li>Right +X projection: <code>πX(p)=(z,y)</code> → nubzuki reference mask</li><li>Back/Left는 같은 점의 좌우반전 projection</li></ul></section>
+      <section class="score-card"><h2>색/빛 단계</h2><ul><li>Geometry는 그대로 하나의 <code>BufferGeometry</code>입니다.</li><li>각 점은 고정된 per-point color attribute를 가집니다.</li><li>cyan→magenta→gold palette와 radial glow shader만 추가했고, view별 geometry/opacity gate는 추가하지 않았습니다.</li></ul></section>
       <section class="score-card"><h2>우선 규정</h2><ul>${contestRules.map((r) => `<li><b>${r.title}</b> — ${r.implementationPolicy}</li>`).join('')}</ul></section>
     </aside>
   </main>
 `;
-
-const canvas = document.querySelector<HTMLCanvasElement>('#scene')!;
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x070b16);
-scene.fog = new THREE.Fog(0x070b16, 10, 32);
-
-const refCamera = new THREE.PerspectiveCamera(config.referenceCamera.fov, config.referenceCamera.aspect, config.referenceCamera.near, config.referenceCamera.far);
-refCamera.position.fromArray(config.referenceCamera.position as [number, number, number]);
-refCamera.lookAt(new THREE.Vector3().fromArray(config.referenceCamera.target as [number, number, number]));
-refCamera.updateMatrixWorld(true);
-refCamera.updateProjectionMatrix();
-
-const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 100);
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.enabled = false;
-
-scene.add(new THREE.HemisphereLight(0xaac7ff, 0x181b2a, 2.2));
-const key = new THREE.DirectionalLight(0xffffff, 3.5);
-key.position.set(4, 6, 7);
-key.castShadow = true;
-key.shadow.mapSize.set(2048, 2048);
-scene.add(key);
-const rim = new THREE.PointLight(0x7dd3fc, 12, 22);
-rim.position.set(-4, 3, 5);
-scene.add(rim);
-
-const root = new THREE.Group();
-scene.add(root);
-const physicalGroup = new THREE.Group();
-const overlayRoot = new THREE.Group();
-const ghostOverlay = new THREE.Group();
-const rayOverlay = new THREE.Group();
-const frustumOverlay = new THREE.Group();
-overlayRoot.add(ghostOverlay, rayOverlay, frustumOverlay);
-root.add(physicalGroup, overlayRoot);
 
 function seeded(seed: number) {
   let s = seed >>> 0;
@@ -99,302 +146,496 @@ function seeded(seed: number) {
   };
 }
 
-function backprojectNDC(cam: THREE.PerspectiveCamera, u: number, v: number, depth: number) {
-  cam.updateMatrixWorld(true);
-  const near = new THREE.Vector3(u, v, -1).unproject(cam);
-  const far = new THREE.Vector3(u, v, 1).unproject(cam);
-  const dir = far.sub(near).normalize();
-  return cam.position.clone().add(dir.multiplyScalar(depth));
+function shuffleInPlace<T>(items: T[], rand: () => number) {
+  for (let i = items.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rand() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
 }
 
-function projectToNDC(cam: THREE.Camera, point: THREE.Vector3) {
-  return point.clone().project(cam);
+function summarizeCounts(counts: number[]): RowSummary {
+  if (counts.length === 0) return { min: 0, median: 0, max: 0 };
+  const sorted = [...counts].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+  return { min: sorted[0], median, max: sorted[sorted.length - 1] };
 }
 
-function pixelError(cam: THREE.Camera, point: THREE.Vector3, target: Vec2) {
-  const p = projectToNDC(cam, point);
-  const dx = ((p.x - target[0]) * config.render.width) / 2;
-  const dy = ((p.y - target[1]) * config.render.height) / 2;
-  return Math.hypot(dx, dy);
+function analyzeRowBalance(front: MaskRows, side: MaskRows): RowBalanceStats {
+  let frontActiveRows = 0;
+  let sideActiveRows = 0;
+  let matchedRows = 0;
+  let frontOnly = 0;
+  let sideOnly = 0;
+  let emptyBoth = 0;
+  const generatedCounts: number[] = [];
+
+  for (let row = 0; row < ROW_COUNT; row += 1) {
+    const frontCount = front.rows[row].length;
+    const sideCount = side.rows[row].length;
+    const hasFront = frontCount > 0;
+    const hasSide = sideCount > 0;
+    if (hasFront) frontActiveRows += 1;
+    if (hasSide) sideActiveRows += 1;
+    if (hasFront && hasSide) {
+      matchedRows += 1;
+      generatedCounts.push(Math.max(frontCount, sideCount));
+    } else if (hasFront) {
+      frontOnly += 1;
+    } else if (hasSide) {
+      sideOnly += 1;
+    } else {
+      emptyBoth += 1;
+    }
+  }
+
+  const unionRows = matchedRows + frontOnly + sideOnly;
+  return {
+    activeRows: Object.freeze({ front: frontActiveRows, side: sideActiveRows, matched: matchedRows }),
+    matchedRowRatio: matchedRows / Math.max(1, unionRows),
+    rowMismatches: Object.freeze({ frontOnly, sideOnly, emptyBoth }),
+    generatedPointsPerMatchedRow: Object.freeze(summarizeCounts(generatedCounts)),
+    activePixels: Object.freeze({ front: front.activePixels, side: side.activePixels }),
+  };
 }
 
-function screenConstantSize(depth: number, pixels: number) {
-  const vh = 2 * Math.tan(THREE.MathUtils.degToRad(refCamera.fov / 2)) * depth;
-  return (pixels / config.render.height) * vh;
+function isCanvasBackground(r: number, g: number, b: number, a: number) {
+  if (a < 64) return true;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const saturation = max - min;
+  return r > 226 && g > 226 && b > 226 && saturation < 28;
 }
 
-function makeCheckerMaterial(a: number, b: number) {
-  return new THREE.ShaderMaterial({
-    uniforms: { colorA: { value: new THREE.Color(a) }, colorB: { value: new THREE.Color(b) }, scale: { value: 18 } },
-    vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-    fragmentShader: `varying vec2 vUv; uniform vec3 colorA; uniform vec3 colorB; uniform float scale; void main(){ vec2 c=floor(vUv*scale); float m=mod(c.x+c.y,2.0); gl_FragColor=vec4(mix(colorA,colorB,m),1.0); }`,
-    side: THREE.DoubleSide,
+function normalizeRgb(r: number, g: number, b: number): Rgb {
+  return [r / 255, g / 255, b / 255];
+}
+
+function enclosedObjectMask(data: Uint8ClampedArray, width: number, height: number) {
+  const reachableBackground = new Uint8Array(width * height);
+  const queue: number[] = [];
+  const pushIfBackground = (x: number, y: number) => {
+    if (x < 0 || x >= width || y < 0 || y >= height) return;
+    const index = y * width + x;
+    if (reachableBackground[index]) return;
+    const i = index * 4;
+    if (!isCanvasBackground(data[i], data[i + 1], data[i + 2], data[i + 3])) return;
+    reachableBackground[index] = 1;
+    queue.push(index);
+  };
+
+  for (let x = 0; x < width; x += 1) {
+    pushIfBackground(x, 0);
+    pushIfBackground(x, height - 1);
+  }
+  for (let y = 0; y < height; y += 1) {
+    pushIfBackground(0, y);
+    pushIfBackground(width - 1, y);
+  }
+
+  for (let head = 0; head < queue.length; head += 1) {
+    const index = queue[head];
+    const x = index % width;
+    const y = Math.floor(index / width);
+    pushIfBackground(x + 1, y);
+    pushIfBackground(x - 1, y);
+    pushIfBackground(x, y + 1);
+    pushIfBackground(x, y - 1);
+  }
+
+  return reachableBackground;
+}
+
+function extractColorRowsFromCanvas(canvas: HTMLCanvasElement): MaskSample[][] {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('Cannot read 2D mask context');
+  const rows = Array.from({ length: ROW_COUNT }, () => [] as MaskSample[]);
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = image.data;
+  const background = enclosedObjectMask(data, canvas.width, canvas.height);
+
+  for (let py = 0; py < canvas.height; py += SAMPLE_STRIDE) {
+    const row = Math.floor((py / (canvas.height - 1)) * (ROW_COUNT - 1));
+    for (let px = 0; px < canvas.width; px += SAMPLE_STRIDE) {
+      const pixelIndex = py * canvas.width + px;
+      if (background[pixelIndex]) continue;
+      const idx = pixelIndex * 4;
+      if (data[idx + 3] < 64) continue;
+      const coord = ((px / (canvas.width - 1)) - 0.5) * POINT_SCALE_X;
+      let r = data[idx];
+      let g = data[idx + 1];
+      let b = data[idx + 2];
+      if (isCanvasBackground(r, g, b, data[idx + 3])) {
+        // Enclosed white regions such as goose body / eyes / KAIST letters are real object pixels.
+        r = 242;
+        g = 248;
+        b = 255;
+      }
+      rows[row].push({ coord, color: normalizeRgb(r, g, b) });
+    }
+  }
+  return rows;
+}
+
+function countActivePixels(rows: MaskSample[][]) {
+  return rows.reduce((sum, row) => sum + row.length, 0);
+}
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error(`Cannot load reference image: ${url}`));
+    image.src = url;
   });
 }
 
-function makeQuad(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3, mat: THREE.Material) {
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute([...a.toArray(), ...b.toArray(), ...c.toArray(), ...a.toArray(), ...c.toArray(), ...d.toArray()], 3));
-  g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0], 2));
-  g.computeVertexNormals();
-  const m = new THREE.Mesh(g, mat);
-  m.castShadow = true;
-  m.receiveShadow = true;
-  return m;
-}
+function drawFallbackTextMask(spec: MaskSpec): MaskRows {
+  const canvas = document.createElement('canvas');
+  canvas.width = MASK_WIDTH;
+  canvas.height = MASK_HEIGHT;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('Cannot create 2D mask context');
 
-const roomVertices = {} as Record<RoomKey, THREE.Vector3>;
-(Object.keys(config.room.layout) as RoomKey[]).forEach((keyName) => {
-  const [u, v] = config.room.layout[keyName] as Vec2;
-  roomVertices[keyName] = backprojectNDC(refCamera, u, v, config.room.depths[keyName]);
-});
-
-const wallMat = makeCheckerMaterial(0x243b6b, 0x3559a3);
-const floorMat = makeCheckerMaterial(0x172554, 0x0f766e);
-const ceilMat = makeCheckerMaterial(0x1e293b, 0x334155);
-const backMat = makeCheckerMaterial(0x3b0764, 0x6d28d9);
-physicalGroup.add(
-  makeQuad(roomVertices.outerTL, roomVertices.innerTL, roomVertices.innerBL, roomVertices.outerBL, wallMat),
-  makeQuad(roomVertices.innerTR, roomVertices.outerTR, roomVertices.outerBR, roomVertices.innerBR, wallMat),
-  makeQuad(roomVertices.outerTL, roomVertices.outerTR, roomVertices.innerTR, roomVertices.innerTL, ceilMat),
-  makeQuad(roomVertices.innerBL, roomVertices.innerBR, roomVertices.outerBR, roomVertices.outerBL, floorMat),
-  makeQuad(roomVertices.innerTL, roomVertices.innerTR, roomVertices.innerBR, roomVertices.innerBL, backMat),
-);
-
-function makeRoomEdgeLines(vertices: Record<RoomKey, THREE.Vector3>, color: number, opacity: number) {
-  const pairs: [RoomKey, RoomKey][] = [
-    ['outerTL', 'outerTR'], ['outerTR', 'outerBR'], ['outerBR', 'outerBL'], ['outerBL', 'outerTL'],
-    ['innerTL', 'innerTR'], ['innerTR', 'innerBR'], ['innerBR', 'innerBL'], ['innerBL', 'innerTL'],
-    ['outerTL', 'innerTL'], ['outerTR', 'innerTR'], ['outerBR', 'innerBR'], ['outerBL', 'innerBL'],
-  ];
-  const pts: number[] = [];
-  pairs.forEach(([a, b]) => pts.push(...vertices[a].toArray(), ...vertices[b].toArray()));
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-  return new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity }));
-}
-
-const physicalSilhouette = makeRoomEdgeLines(roomVertices, 0xe0f2fe, 0.34);
-physicalSilhouette.name = 'Physical distorted room silhouette';
-physicalGroup.add(physicalSilhouette);
-
-const perceivedBox = new THREE.BoxGeometry(2, 1.3, 1.2);
-const roomWire = new THREE.LineSegments(new THREE.EdgesGeometry(perceivedBox), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 }));
-roomWire.name = 'Ghost perceived rectangular room';
-roomWire.position.set(0, 0, -0.4);
-ghostOverlay.add(roomWire);
-
-function makeTextMaskPoints() {
-  const c = document.createElement('canvas');
-  c.width = config.anamorphicText.canvasWidth;
-  c.height = config.anamorphicText.canvasHeight;
-  const ctx = c.getContext('2d')!;
   ctx.fillStyle = 'black';
-  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = 'white';
-  ctx.font = '900 116px Arial, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(config.anamorphicText.text, c.width / 2, c.height / 2 + 4);
-  const data = ctx.getImageData(0, 0, c.width, c.height).data;
-  const pts: Vec2[] = [];
-  for (let y = 0; y < c.height; y += config.anamorphicText.sampleStride) {
-    for (let x = 0; x < c.width; x += config.anamorphicText.sampleStride) {
-      const pixel = (y * c.width + x) * 4;
-      if (data[pixel] > 128) {
-        const u = (x / c.width) * 1.55 - 0.775;
-        const v = 0.56 - (y / c.height) * 0.34;
-        pts.push([u, v]);
-      }
+  ctx.font = '900 104px Arial Black, Arial, sans-serif';
+  ctx.fillText(spec.label, canvas.width / 2, canvas.height / 2 + 6);
+
+  const rows = extractColorRowsFromCanvas(canvas);
+  return { spec, rows, rowCount: ROW_COUNT, width: canvas.width, height: canvas.height, activePixels: countActivePixels(rows) };
+}
+
+async function drawReferenceImageMask(spec: MaskSpec): Promise<MaskRows> {
+  if (!spec.imageUrl) return drawFallbackTextMask(spec);
+  const image = await loadImage(spec.imageUrl);
+  const canvas = document.createElement('canvas');
+  canvas.width = MASK_WIDTH;
+  canvas.height = MASK_HEIGHT;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('Cannot create 2D image mask context');
+
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const margin = 20;
+  const crop = 8;
+  const scale = Math.min((canvas.width - margin * 2) / (image.naturalWidth - crop * 2), (canvas.height - margin * 2) / (image.naturalHeight - crop * 2));
+  const w = (image.naturalWidth - crop * 2) * scale;
+  const h = (image.naturalHeight - crop * 2) * scale;
+  ctx.drawImage(image, crop, crop, image.naturalWidth - crop * 2, image.naturalHeight - crop * 2, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
+
+  const rows = extractColorRowsFromCanvas(canvas);
+
+  return { spec, rows, rowCount: ROW_COUNT, width: canvas.width, height: canvas.height, activePixels: countActivePixels(rows) };
+}
+
+function rowToY(row: number) {
+  return (0.5 - row / (ROW_COUNT - 1)) * POINT_SCALE_Y;
+}
+
+function colorChroma(color: Rgb) {
+  return Math.max(color[0], color[1], color[2]) - Math.min(color[0], color[1], color[2]);
+}
+
+function colorDarkness(color: Rgb) {
+  return 1 - (color[0] + color[1] + color[2]) / 3;
+}
+
+function blendReferenceColors(frontColor: Rgb, sideColor: Rgb, rand: () => number): Rgb {
+  // One physical point can only carry one color.  Use a deterministic shared-space blend,
+  // but bias toward the more informative sample so Nubzuki blue/pink and goose orange/dark
+  // outlines survive instead of collapsing into a washed-out average.
+  const frontSignal = colorChroma(frontColor) * 1.45 + colorDarkness(frontColor) * 1.2;
+  const sideSignal = colorChroma(sideColor) * 1.25 + colorDarkness(sideColor) * 0.9;
+  const frontWeight = THREE.MathUtils.clamp(0.48 + (frontSignal - sideSignal) * 0.42, 0.24, 0.76);
+  const jitter = (rand() - 0.5) * 0.045;
+  const w = THREE.MathUtils.clamp(frontWeight + jitter, 0.22, 0.78);
+  const gamma = 1.35;
+  const mix = (a: number, b: number) => Math.pow(Math.pow(a, gamma) * w + Math.pow(b, gamma) * (1 - w), 1 / gamma);
+  const r = mix(frontColor[0], sideColor[0]);
+  const g = mix(frontColor[1], sideColor[1]);
+  const b = mix(frontColor[2], sideColor[2]);
+  const boost = 1.07;
+  return [Math.min(1, r * boost), Math.min(1, g * boost), Math.min(1, b * boost)];
+}
+
+function generateSharedPointCloud(front: MaskRows, side: MaskRows): GeneratedCloud {
+  const rand = seeded(RNG_SEED);
+  const rowBalance = analyzeRowBalance(front, side);
+  const positions: number[] = [];
+  const colors: number[] = [];
+  let rowsUsed = 0;
+  let frontUsed = 0;
+  let sideUsed = 0;
+
+  for (let row = 0; row < ROW_COUNT; row += 1) {
+    const frontSamples = [...front.rows[row]];
+    const sideSamples = [...side.rows[row]];
+    if (frontSamples.length === 0 || sideSamples.length === 0) continue;
+    shuffleInPlace(frontSamples, rand);
+    shuffleInPlace(sideSamples, rand);
+    const count = Math.max(frontSamples.length, sideSamples.length);
+    if (count <= 0) continue;
+    rowsUsed += 1;
+    const y = rowToY(row);
+    for (let i = 0; i < count; i += 1) {
+      const frontSample = frontSamples[i % frontSamples.length];
+      const sideSample = sideSamples[i % sideSamples.length];
+      const x = frontSample.coord;
+      const z = -sideSample.coord;
+      positions.push(x, y, z);
+      const [r, g, b] = blendReferenceColors(frontSample.color, sideSample.color, rand);
+      colors.push(r, g, b);
+      frontUsed += 1;
+      sideUsed += 1;
     }
   }
-  return pts;
+
+  return {
+    positions: new Float32Array(positions),
+    colors: new Float32Array(colors),
+    stats: {
+      points: positions.length / 3,
+      frontCoverage: Math.min(1, frontUsed / Math.max(1, front.activePixels)),
+      sideCoverage: Math.min(1, sideUsed / Math.max(1, side.activePixels)),
+      rowsUsed,
+      rowCount: ROW_COUNT,
+      rowBalance,
+      projectionCount: 2,
+      projectionOnlyPointCount: 0,
+      noProjectionOnlyPoints: true,
+      backgroundNoisePolicy: 'no projection-only points; every rendered point must be paired from front and side masks',
+      colorPolicy: 'fixed per-point RGB sampled from both reference images and blended in shared space',
+    },
+  };
 }
 
-const rand = seeded(config.anamorphicText.seed);
-const textPoints = makeTextMaskPoints();
-const textGeo = new THREE.PlaneGeometry(1, 1);
-const textMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, emissive: 0x8bb7ff, emissiveIntensity: 0.2, roughness: 0.42, side: THREE.DoubleSide });
-const pieces = new THREE.InstancedMesh(textGeo, textMat, textPoints.length);
-pieces.castShadow = true;
-const dummy = new THREE.Object3D();
-const reprojectionErrors: number[] = [];
-textPoints.forEach((ndc, i) => {
-  const depth = THREE.MathUtils.lerp(config.anamorphicText.depthMin, config.anamorphicText.depthMax, rand());
-  const pos = backprojectNDC(refCamera, ndc[0], ndc[1], depth);
-  dummy.position.copy(pos);
-  dummy.quaternion.copy(refCamera.quaternion);
-  const s = screenConstantSize(depth, config.anamorphicText.piecePixelSize);
-  dummy.scale.setScalar(s);
-  dummy.updateMatrix();
-  pieces.setMatrixAt(i, dummy.matrix);
-  reprojectionErrors.push(pixelError(refCamera, pos, ndc));
+const canvas = document.querySelector<HTMLCanvasElement>('#scene')!;
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x03040a);
+scene.fog = new THREE.Fog(0x03040a, 6, 13);
+
+const frontMask = await drawReferenceImageMask(FRONT_SPEC);
+const sideMask = await drawReferenceImageMask(SIDE_SPEC);
+const cloud = generateSharedPointCloud(frontMask, sideMask);
+
+const geometry = new THREE.BufferGeometry();
+geometry.setAttribute('position', new THREE.BufferAttribute(cloud.positions, 3));
+geometry.setAttribute('color', new THREE.BufferAttribute(cloud.colors, 3));
+geometry.computeBoundingSphere();
+
+const material = new THREE.ShaderMaterial({
+  uniforms: {
+    uSize: { value: POINT_SIZE * Math.min(devicePixelRatio, 2) },
+    uAlpha: { value: 0.78 },
+  },
+  vertexShader: `
+    uniform float uSize;
+    varying vec3 vColor;
+    void main() {
+      vColor = color;
+      vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+      gl_PointSize = uSize;
+      gl_Position = projectionMatrix * mvPosition;
+    }
+  `,
+  fragmentShader: `
+    uniform float uAlpha;
+    varying vec3 vColor;
+    void main() {
+      float d = length(gl_PointCoord - vec2(0.5));
+      if (d > 0.5) discard;
+      float alpha = smoothstep(0.5, 0.06, d) * uAlpha;
+      float core = smoothstep(0.18, 0.0, d);
+      vec3 glowColor = mix(vColor * 1.12, vec3(1.0), core * 0.22);
+      gl_FragColor = vec4(glowColor, alpha);
+    }
+  `,
+  vertexColors: true,
+  transparent: true,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
 });
-physicalGroup.add(pieces);
 
-const sphereMatA = new THREE.MeshStandardMaterial({ color: 0xfbbf24, roughness: 0.3, metalness: 0.15 });
-const sphereMatB = new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.3, metalness: 0.15 });
-const sphereA = new THREE.Mesh(new THREE.SphereGeometry(config.objects.sphereRadius, 48, 24), sphereMatA);
-const sphereB = new THREE.Mesh(new THREE.SphereGeometry(config.objects.sphereRadius, 48, 24), sphereMatB);
-sphereA.position.copy(backprojectNDC(refCamera, config.objects.sphereA.ndc[0], config.objects.sphereA.ndc[1], config.objects.sphereA.depth));
-sphereB.position.copy(backprojectNDC(refCamera, config.objects.sphereB.ndc[0], config.objects.sphereB.ndc[1], config.objects.sphereB.depth));
-sphereA.castShadow = sphereB.castShadow = true;
-physicalGroup.add(sphereA, sphereB);
+const pointCloud = new THREE.Points(geometry, material);
+scene.add(pointCloud);
 
-function makeLabelSprite(text: string, color = '#e0f2fe', accent = '#38bdf8') {
-  const c = document.createElement('canvas');
-  c.width = 768;
-  c.height = 192;
-  const ctx = c.getContext('2d')!;
-  ctx.clearRect(0, 0, c.width, c.height);
-  ctx.fillStyle = 'rgba(2, 6, 23, 0.76)';
-  roundRect(ctx, 18, 18, c.width - 36, c.height - 36, 30);
-  ctx.fill();
-  ctx.strokeStyle = accent;
-  ctx.lineWidth = 4;
-  ctx.stroke();
-  ctx.font = '900 42px Arial, sans-serif';
-  ctx.fillStyle = color;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(text, c.width / 2, c.height / 2 + 3);
-  const texture = new THREE.CanvasTexture(c);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false });
-  const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(1.55, 0.4, 1);
-  sprite.renderOrder = 20;
-  return sprite;
+const axesGroup = new THREE.Group();
+const grid = new THREE.GridHelper(4.8, 24, 0x263047, 0x101522);
+grid.position.y = -0.86;
+axesGroup.add(grid);
+function axisLine(a: THREE.Vector3, b: THREE.Vector3, color: number) {
+  return new THREE.Line(new THREE.BufferGeometry().setFromPoints([a, b]), new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.55 }));
+}
+axesGroup.add(
+  axisLine(new THREE.Vector3(-2.1, -0.84, 0), new THREE.Vector3(2.1, -0.84, 0), 0x7dd3fc),
+  axisLine(new THREE.Vector3(0, -0.84, -2.1), new THREE.Vector3(0, -0.84, 2.1), 0xfde68a),
+);
+scene.add(axesGroup);
+
+function countScenePoints(root: THREE.Object3D) {
+  let count = 0;
+  root.traverse((object) => {
+    if (object instanceof THREE.Points) count += 1;
+  });
+  return count;
 }
 
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
+function deepFreeze<T extends Record<string, unknown>>(value: T): Readonly<T> {
+  Object.values(value).forEach((entry) => {
+    if (entry && typeof entry === 'object') Object.freeze(entry);
+  });
+  return Object.freeze(value);
 }
 
-const physicalLabel = makeLabelSprite('Physical Twin: distorted mesh', '#f8fafc', '#fb7185');
-physicalLabel.position.copy(backprojectNDC(refCamera, 0.34, -0.68, 5.2));
-physicalGroup.add(physicalLabel);
+function buildLenticularQa(): LenticularQa {
+  const scenePointsCount = countScenePoints(scene);
+  const pointCloudUsesSharedGeometry = pointCloud.geometry === geometry;
+  const attributeNames = Object.keys(geometry.attributes).sort();
+  const positionAttribute = geometry.getAttribute('position');
+  const colorAttribute = geometry.getAttribute('color');
+  const positionCount = positionAttribute?.count ?? 0;
+  const colorCount = colorAttribute?.count ?? 0;
+  const positionItemSize = positionAttribute?.itemSize ?? 0;
+  const colorItemSize = colorAttribute?.itemSize ?? 0;
+  const pointCloudInvariantHolds = scenePointsCount === 1
+    && pointCloudUsesSharedGeometry
+    && attributeNames.length === 2
+    && attributeNames.includes('position')
+    && attributeNames.includes('color')
+    && positionCount === cloud.stats.points
+    && colorCount === cloud.stats.points
+    && positionItemSize === 3
+    && colorItemSize === 3;
 
-const sphereLabel = makeLabelSprite('same physical size / different perceived size', '#fef3c7', '#fbbf24');
-sphereLabel.position.copy(backprojectNDC(refCamera, 0.0, -0.58, 4.7));
-physicalGroup.add(sphereLabel);
-
-const perceptualLabel = makeLabelSprite('Perceptual Twin: rectangular room', '#f8fafc', '#a78bfa');
-perceptualLabel.position.set(0, 1.05, -0.35);
-ghostOverlay.add(perceptualLabel);
-
-const refCameraLabel = makeLabelSprite('Reference Camera: projection constraint', '#dbeafe', '#60a5fa');
-refCameraLabel.position.copy(refCamera.position).add(new THREE.Vector3(0, 0.65, -0.1));
-frustumOverlay.add(refCameraLabel);
-
-function line(points: THREE.Vector3[], color: number, opacity = 1) {
-  return new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), new THREE.LineBasicMaterial({ color, transparent: opacity < 1, opacity }));
+  return deepFreeze({
+    seed: RNG_SEED,
+    maskDimensions: Object.freeze({ width: MASK_WIDTH, height: MASK_HEIGHT, sampleStride: SAMPLE_STRIDE }),
+    rowCount: ROW_COUNT,
+    pointCount: cloud.stats.points,
+    coverage: Object.freeze({ front: cloud.stats.frontCoverage, side: cloud.stats.sideCoverage }),
+    rowsUsed: cloud.stats.rowsUsed,
+    rowBalance: Object.freeze(cloud.stats.rowBalance),
+    projectionLabels: Object.freeze({
+      front: `Front +Z orthographic projection: (x,y) => ${FRONT_SPEC.label}`,
+      right: `Right +X orthographic projection: (z,y) => ${SIDE_SPEC.label}`,
+    }),
+    projectionCount: 2,
+    projectionOnlyPointCount: 0,
+    noProjectionOnlyPoints: true,
+    backgroundNoisePolicy: 'no projection-only points; every rendered point must be paired from front and side masks',
+    scenePointsCount,
+    pointCloudUsesSharedGeometry,
+    geometryAttributes: Object.freeze({
+      names: Object.freeze(attributeNames),
+      positionCount,
+      positionItemSize,
+      colorCount,
+      colorItemSize,
+    }),
+    visualStyle: Object.freeze({
+      colorSource: 'fixed-per-point-attribute',
+      colorPolicy: 'reference-rgb-shared-blend',
+      shaderGlowOnly: true,
+      viewDependentOpacityGate: false,
+      depthTestReadingGate: false,
+    }),
+    pointCloudInvariantHolds,
+  });
 }
-(Object.entries(config.room.layout) as [RoomKey, Vec2][]).forEach(([_, ndc]) => rayOverlay.add(line([refCamera.position, backprojectNDC(refCamera, ndc[0], ndc[1], 11)], 0x60a5fa, 0.3)));
-textPoints.filter((_, i) => i % Math.max(1, Math.floor(textPoints.length / 8)) === 0).slice(0, 8).forEach((ndc) => rayOverlay.add(line([refCamera.position, backprojectNDC(refCamera, ndc[0], ndc[1], 7)], 0xfbbf24, 0.34)));
-const helper = new THREE.CameraHelper(refCamera);
-frustumOverlay.add(helper);
 
-let viewMode: ViewMode = 'reference';
-let overlayMode: OverlayMode = 'off';
+Object.defineProperty(window, '__LENTICULAR_QA__', {
+  configurable: false,
+  enumerable: true,
+  get: buildLenticularQa,
+});
+
+const aspect = 16 / 9;
+const camera = new THREE.OrthographicCamera(-VIEW_HALF_HEIGHT * aspect, VIEW_HALF_HEIGHT * aspect, VIEW_HALF_HEIGHT, -VIEW_HALF_HEIGHT, 0.01, 100);
+camera.position.set(0, 0, 6);
+camera.lookAt(0, 0, 0);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.enabled = false;
+controls.target.set(0, 0, 0);
 
 const viewButtons: Record<ViewMode, HTMLButtonElement> = {
-  play: document.querySelector('#playBtn') as HTMLButtonElement,
-  reference: document.querySelector('#referenceBtn') as HTMLButtonElement,
+  front: document.querySelector('#frontBtn') as HTMLButtonElement,
+  right: document.querySelector('#rightBtn') as HTMLButtonElement,
+  back: document.querySelector('#backBtn') as HTMLButtonElement,
+  left: document.querySelector('#leftBtn') as HTMLButtonElement,
   reveal: document.querySelector('#revealBtn') as HTMLButtonElement,
   orbit: document.querySelector('#orbitBtn') as HTMLButtonElement,
 };
-const wireBtn = document.querySelector('#wireBtn') as HTMLButtonElement;
-const recordBtn = document.querySelector('#recordBtn') as HTMLButtonElement;
+const phaseLabel = document.querySelector('#phaseLabel')!;
+const phaseDetail = document.querySelector('#phaseDetail')!;
+const viewBadge = document.querySelector('#viewBadge') as HTMLDivElement;
 const captureStatus = document.querySelector('#captureStatus') as HTMLParagraphElement;
-const overlayHelp = document.querySelector('#overlayHelp') as HTMLParagraphElement;
+const recordBtn = document.querySelector('#recordBtn') as HTMLButtonElement;
+const errorMetric = document.querySelector('#errorMetric')!;
+const invariantQaMetric = document.querySelector('#invariantQaMetric')!;
 
-function updateUiState() {
+let viewMode: ViewMode = 'front';
+let playing = false;
+let start = 0;
+let autoTheta = 0;
+
+const viewDefs: Record<ViewMode, { pos: THREE.Vector3; label: string; detail: string; badge: string; grid: boolean }> = {
+  front: { pos: new THREE.Vector3(0, 0, 6), label: 'FRONT +Z', detail: 'same points project (x,y) to goose reference image', badge: 'GOOSE', grid: false },
+  right: { pos: new THREE.Vector3(6, 0, 0), label: 'RIGHT +X', detail: 'same points project (z,y) to nubzuki reference image', badge: 'NUBZUKI', grid: false },
+  back: { pos: new THREE.Vector3(0, 0, -6), label: 'BACK −Z', detail: 'same points, mirrored goose projection', badge: 'mirror: GOOSE', grid: false },
+  left: { pos: new THREE.Vector3(-6, 0, 0), label: 'LEFT −X', detail: 'same points, mirrored nubzuki projection', badge: 'mirror: NUBZUKI', grid: false },
+  reveal: { pos: new THREE.Vector3(4.6, 2.1, 5.1), label: '3D REVEAL', detail: 'the physical cloud is neither flat image by itself', badge: 'single 3D point cloud', grid: true },
+  orbit: { pos: new THREE.Vector3(4.6, 2.1, 5.1), label: 'ORBIT', detail: 'drag to inspect the one shared point set', badge: 'free orbit', grid: true },
+};
+
+function setCameraTo(position: THREE.Vector3) {
+  camera.position.copy(position);
+  camera.lookAt(0, 0, 0);
+  controls.target.set(0, 0, 0);
+  controls.update();
+}
+
+function updateUi() {
   Object.entries(viewButtons).forEach(([mode, button]) => {
     const active = mode === viewMode;
     button.classList.toggle('is-active', active);
     button.setAttribute('aria-pressed', String(active));
   });
-
-  const overlayLabels: Record<OverlayMode, string> = {
-    off: 'Overlay: Off',
-    ghost: 'Overlay: Ghost',
-    rays: 'Overlay: Rays',
-    all: 'Overlay: All',
-  };
-  wireBtn.textContent = overlayLabels[overlayMode];
-  wireBtn.dataset.overlay = overlayMode;
-  wireBtn.classList.toggle('is-active', overlayMode !== 'off');
-  wireBtn.setAttribute('aria-pressed', String(overlayMode !== 'off'));
-  overlayHelp.textContent = overlayMode === 'off'
-    ? 'Overlay Off: clean judging view. Cycle overlay for ghost room, back-projection rays, and camera frustum.'
-    : `Overlay ${overlayMode.toUpperCase()}: ${overlayMode === 'ghost' ? 'perceived rectangular-room wire only.' : overlayMode === 'rays' ? 'sampled projection rays only; frustum and ghost hidden.' : 'ghost room + sampled rays + reference frustum.'}`;
-
-  ghostOverlay.visible = overlayMode === 'ghost' || overlayMode === 'all';
-  rayOverlay.visible = overlayMode === 'rays' || overlayMode === 'all';
-  frustumOverlay.visible = overlayMode === 'all';
-  overlayRoot.visible = overlayMode !== 'off';
-  physicalLabel.visible = viewMode !== 'reference';
-  sphereLabel.visible = viewMode !== 'orbit';
+  const def = viewDefs[viewMode];
+  phaseLabel.textContent = def.label;
+  phaseDetail.textContent = def.detail;
+  viewBadge.textContent = def.badge;
+  axesGroup.visible = def.grid;
 }
 
-function setViewMode(mode: ViewMode) {
+function setView(mode: ViewMode) {
   viewMode = mode;
-  updateUiState();
+  playing = false;
+  controls.enabled = mode === 'orbit';
+  if (mode !== 'orbit') setCameraTo(viewDefs[mode].pos);
+  updateUi();
 }
 
-function setOverlayMode(mode: OverlayMode) {
-  overlayMode = mode;
-  updateUiState();
-}
-
-const keyframes: Keyframe[] = [
-  { time: 0, position: new THREE.Vector3(-2.5, 0.8, 8.5), target: new THREE.Vector3(0, 0.08, 0), phase: 'approach scattered geometry' },
-  { time: 0.25, position: new THREE.Vector3(0, 0, 8), target: new THREE.Vector3(0, 0, 0), phase: 'WHAT WE SEE aligned' },
-  { time: 0.45, position: new THREE.Vector3(0, 0, 8), target: new THREE.Vector3(0, 0, 0), phase: 'perceived room' },
-  { time: 0.70, position: new THREE.Vector3(4, 2, 7), target: new THREE.Vector3(0, 0, 0), phase: 'physical geometry reveal' },
-  { time: 0.90, position: new THREE.Vector3(6.5, 3, 9), target: new THREE.Vector3(0, 0, 0), phase: 'inverse projection overlay' },
-  { time: 1, position: new THREE.Vector3(6.5, 3, 9), target: new THREE.Vector3(0, 0, 0), phase: 'WHAT EXISTS ending' },
-];
-
-function smooth(t: number) { return t * t * (3 - 2 * t); }
-function lookQuaternion(pos: THREE.Vector3, target: THREE.Vector3) {
-  const m = new THREE.Matrix4().lookAt(pos, target, camera.up);
-  return new THREE.Quaternion().setFromRotationMatrix(m);
-}
-function setCameraFromTimeline(t: number) {
-  const clamped = THREE.MathUtils.clamp(t, 0, 1);
-  let a = keyframes[0], b = keyframes[keyframes.length - 1];
-  for (let i = 0; i < keyframes.length - 1; i += 1) if (clamped >= keyframes[i].time && clamped <= keyframes[i + 1].time) { a = keyframes[i]; b = keyframes[i + 1]; break; }
-  const local = smooth((clamped - a.time) / Math.max(0.0001, b.time - a.time));
-  camera.position.lerpVectors(a.position, b.position, local);
-  const target = new THREE.Vector3().lerpVectors(a.target, b.target, local);
-  camera.quaternion.slerpQuaternions(lookQuaternion(a.position, a.target), lookQuaternion(b.position, b.target), local);
-  controls.target.copy(target);
-  document.querySelector('#phaseLabel')!.textContent = b.phase;
-  document.querySelector('#phaseDetail')!.textContent = clamped < 0.7 ? 'reference constraints visible' : 'physical twin revealed';
-  if (playing && clamped > 0.72 && overlayMode === 'off') setOverlayMode('ghost');
-  document.querySelector<HTMLDivElement>('#endingText')!.classList.toggle('ending--show', clamped > 0.9);
-  physicalLabel.visible = viewMode !== 'reference' && (!playing || clamped > 0.62);
-  sphereLabel.visible = viewMode !== 'orbit' && (!playing || clamped < 0.72);
-}
-
-let playing = false;
-let start = 0;
-let lastTimeline = 0.25;
-function setReference() { playing = false; controls.enabled = false; setOverlayMode('off'); setViewMode('reference'); setCameraFromTimeline(0.25); }
-function setReveal() { playing = false; controls.enabled = false; setOverlayMode('ghost'); setViewMode('reveal'); setCameraFromTimeline(0.82); }
+Object.entries(viewButtons).forEach(([mode, button]) => {
+  button.onclick = () => setView(mode as ViewMode);
+});
 
 function resize() {
   const rect = canvas.parentElement!.getBoundingClientRect();
   renderer.setSize(rect.width, rect.height, false);
-  camera.aspect = rect.width / rect.height;
+  const a = rect.width / rect.height;
+  camera.left = -VIEW_HALF_HEIGHT * a;
+  camera.right = VIEW_HALF_HEIGHT * a;
+  camera.top = VIEW_HALF_HEIGHT;
+  camera.bottom = -VIEW_HALF_HEIGHT;
   camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize);
@@ -403,50 +644,41 @@ resize();
 function animate(now: number) {
   requestAnimationFrame(animate);
   if (playing) {
-    lastTimeline = Math.min(1, (now - start) / (config.render.durationSec * 1000));
-    setCameraFromTimeline(lastTimeline);
-    if (lastTimeline >= 1) { playing = false; setViewMode('reveal'); }
+    const t = Math.min(1, (now - start) / 10_000);
+    autoTheta = t * Math.PI * 2;
+    const radius = 6;
+    camera.position.set(Math.sin(autoTheta) * radius, 0.35 + Math.sin(t * Math.PI) * 1.5, Math.cos(autoTheta) * radius);
+    camera.lookAt(0, 0, 0);
+    controls.target.set(0, 0, 0);
+    const deg = ((autoTheta * 180) / Math.PI) % 360;
+    phaseLabel.textContent = '10s ROTATION';
+    if (deg < 45 || deg > 315) viewBadge.textContent = 'GOOSE';
+    else if (deg > 45 && deg < 135) viewBadge.textContent = 'NUBZUKI';
+    else if (deg > 135 && deg < 225) viewBadge.textContent = 'mirrored GOOSE';
+    else viewBadge.textContent = 'mirrored NUBZUKI';
+    phaseDetail.textContent = 'same cloud rotating through front/right/back/left projections';
+    if (t >= 1) setView('front');
   }
   if (controls.enabled) controls.update();
   renderer.render(scene, camera);
 }
 requestAnimationFrame(animate);
 
-const meanError = reprojectionErrors.reduce((a, b) => a + b, 0) / reprojectionErrors.length;
-document.querySelector('#errorMetric')!.textContent = `mean reprojection error: ${meanError.toFixed(4)} px / pieces: ${textPoints.length}`;
-setReference();
+const qa = window.__LENTICULAR_QA__;
+errorMetric.textContent = `same points: ${cloud.stats.points.toLocaleString()} / matched rows: ${cloud.stats.rowsUsed}/${cloud.stats.rowCount} / active-row overlap: ${(cloud.stats.rowBalance.matchedRowRatio * 100).toFixed(1)}% / row density min-med-max: ${cloud.stats.rowBalance.generatedPointsPerMatchedRow.min}-${cloud.stats.rowBalance.generatedPointsPerMatchedRow.median}-${cloud.stats.rowBalance.generatedPointsPerMatchedRow.max} / coverage F/S: ${(cloud.stats.frontCoverage * 100).toFixed(1)}%/${(cloud.stats.sideCoverage * 100).toFixed(1)}%`;
+invariantQaMetric.textContent = `Physical cloud: ${qa.scenePointsCount} THREE.Points object using 1 shared BufferGeometry (${qa.geometryAttributes.names.join(' + ')} attributes, count=${qa.pointCount.toLocaleString()}). Row QA: active rows F/S/M=${qa.rowBalance.activeRows.front}/${qa.rowBalance.activeRows.side}/${qa.rowBalance.activeRows.matched}; drops F-only/S-only/empty=${qa.rowBalance.rowMismatches.frontOnly}/${qa.rowBalance.rowMismatches.sideOnly}/${qa.rowBalance.rowMismatches.emptyBoth}; sampled active pixels F/S=${qa.rowBalance.activePixels.front.toLocaleString()}/${qa.rowBalance.activePixels.side.toLocaleString()}. Shared-space QA: projectionCount=${qa.projectionCount}, projectionOnlyPointCount=${qa.projectionOnlyPointCount}, noProjectionOnlyPoints=${qa.noProjectionOnlyPoints}; policy=${qa.backgroundNoisePolicy}; colorPolicy=${qa.visualStyle.colorPolicy}. Style QA: ${qa.visualStyle.colorSource}, shaderGlowOnly=${qa.visualStyle.shaderGlowOnly}, viewOpacityGate=${qa.visualStyle.viewDependentOpacityGate}, depthGate=${qa.visualStyle.depthTestReadingGate}. Helper axes/grid may have their own line geometries, but they are not point sets. Point-cloud invariant: ${qa.pointCloudInvariantHolds ? 'PASS' : 'FAIL'}.`;
+setView('front');
 
-viewButtons.play.onclick = () => { controls.enabled = false; setOverlayMode('off'); setViewMode('play'); playing = true; start = performance.now(); };
-(document.querySelector('#referenceBtn') as HTMLButtonElement).onclick = setReference;
-(document.querySelector('#revealBtn') as HTMLButtonElement).onclick = setReveal;
-viewButtons.orbit.onclick = () => { playing = false; controls.enabled = true; setOverlayMode(overlayMode === 'off' ? 'all' : overlayMode); setViewMode('orbit'); controls.target.set(0, 0, 0); };
-wireBtn.onclick = () => {
-  const next: Record<OverlayMode, OverlayMode> = { off: 'ghost', ghost: 'rays', rays: 'all', all: 'off' };
-  setOverlayMode(next[overlayMode]);
-};
 (document.querySelector('#shotBtn') as HTMLButtonElement).onclick = () => {
   const a = document.createElement('a');
-  a.download = 'representative.png';
+  a.download = `lenticular-${viewMode}.png`;
   a.href = renderer.domElement.toDataURL('image/png');
   a.click();
 };
-function getSupportedWebmMimeType() {
-  const candidates = [
-    'video/webm;codecs=vp9',
-    'video/webm;codecs=vp8',
-    'video/webm',
-  ];
-  return candidates.find((mime) => MediaRecorder.isTypeSupported(mime)) ?? '';
-}
 
-function startTimelineFromZeroForCapture() {
-  controls.enabled = false;
-  setOverlayMode('off');
-  setViewMode('play');
-  lastTimeline = 0;
-  playing = true;
-  start = performance.now();
-  setCameraFromTimeline(0);
+function getSupportedWebmMimeType() {
+  const candidates = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+  return candidates.find((mime) => MediaRecorder.isTypeSupported(mime)) ?? '';
 }
 
 let recording = false;
@@ -456,25 +688,18 @@ recordBtn.onclick = () => {
     captureStatus.textContent = 'Recording unavailable: this browser does not expose MediaRecorder/canvas captureStream.';
     return;
   }
-
   const mimeType = getSupportedWebmMimeType();
-  const stream = renderer.domElement.captureStream(config.render.fps);
+  const stream = renderer.domElement.captureStream(60);
   const track = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack | undefined;
   const chunks: Blob[] = [];
   const recorder = new MediaRecorder(stream, mimeType ? { mimeType, videoBitsPerSecond: 10_000_000 } : { videoBitsPerSecond: 10_000_000 });
-  const durationMs = config.render.durationSec * 1000;
   let stopTimer = 0;
-
   recording = true;
   recordBtn.disabled = true;
   recordBtn.classList.add('is-recording');
   recordBtn.textContent = 'Recording 10s…';
-  captureStatus.textContent = `Recording ${config.render.durationSec}s WebM from timeline t=0 at ${config.render.fps}fps. Do not switch tabs.`;
-
+  captureStatus.textContent = 'Recording 10s rotation from the single shared point cloud.';
   recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-  recorder.onerror = () => {
-    captureStatus.textContent = 'Recording error: retry in Chromium/Edge, or capture frames and convert with ffmpeg from README.';
-  };
   recorder.onstop = () => {
     window.clearTimeout(stopTimer);
     stream.getTracks().forEach((t) => t.stop());
@@ -483,23 +708,23 @@ recordBtn.onclick = () => {
     recordBtn.classList.remove('is-recording');
     recordBtn.textContent = '10초 WebM 녹화';
     playing = false;
-    setViewMode('reveal');
-    setOverlayMode('ghost');
-    setCameraFromTimeline(0.82);
-
+    setView('front');
     const blob = new Blob(chunks, { type: mimeType || 'video/webm' });
     const a = document.createElement('a');
-    a.download = 'output.webm';
+    a.download = 'lenticular-shared-cloud.webm';
     a.href = URL.createObjectURL(blob);
     a.click();
-    captureStatus.textContent = `Saved output.webm (${(blob.size / 1024 / 1024).toFixed(2)} MB). Convert to MP4 with the README ffmpeg command; target <=10s and <=50MB.`;
+    captureStatus.textContent = `Saved lenticular-shared-cloud.webm (${(blob.size / 1024 / 1024).toFixed(2)} MB). Convert to MP4 with README ffmpeg command.`;
   };
-
-  startTimelineFromZeroForCapture();
+  viewMode = 'reveal';
+  controls.enabled = false;
+  updateUi();
+  playing = true;
+  start = performance.now();
   track?.requestFrame?.();
   recorder.start(250);
   stopTimer = window.setTimeout(() => {
     track?.requestFrame?.();
     if (recorder.state !== 'inactive') recorder.stop();
-  }, durationMs);
+  }, 10_000);
 };
