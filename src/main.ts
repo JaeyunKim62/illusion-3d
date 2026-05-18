@@ -4,7 +4,7 @@ import { contestRules } from './contestRules.ts';
 import './styles.css';
 
 type ViewMode = 'front' | 'right' | 'back' | 'left' | 'reveal' | 'orbit';
-type MaskSpec = { name: string; label: string; color: string; imageUrl?: string };
+type MaskSpec = { name: string; label: string; imageUrl?: string };
 type Rgb = readonly [number, number, number];
 type MaskSample = { coord: number; color: Rgb };
 type MaskRows = { spec: MaskSpec; rows: MaskSample[][]; rowCount: number; width: number; height: number; activePixels: number };
@@ -88,14 +88,12 @@ const VIEW_HALF_HEIGHT = 1.48;
 const FRONT_SPEC: MaskSpec = {
   name: 'Front +Z',
   label: 'GOOSE',
-  color: '#e8f6ff',
-  imageUrl: '/artifacts/reference-image/goose.jpg',
+  imageUrl: '/artifacts/reference-image/goose.png',
 };
 const SIDE_SPEC: MaskSpec = {
   name: 'Right +X',
   label: 'NUBZUKI',
-  color: '#fff3b0',
-  imageUrl: '/artifacts/reference-image/nubzuki.jpg',
+  imageUrl: '/artifacts/reference-image/cake.png',
 };
 const RNG_SEED = 4792026;
 
@@ -132,7 +130,7 @@ app.innerHTML = `
       <p class="capture-status" id="captureStatus" role="status">Capture ready. Use Front/Right before PNG capture, or record the 10s +X → −Z → 45° overhead reveal path.</p>
       <section class="score-card"><h2>Invariant QA</h2><p class="qa-metric" id="invariantQaMetric">checking physical point-set invariant…</p></section>
       <section class="score-card"><h2>수학적 정의</h2><ul><li>점 하나: <code>p=(x,y,z)</code></li><li>Front +Z projection: <code>πZ(p)=(x,y)</code> → goose reference mask</li><li>Right +X projection: <code>πX(p)=(z,y)</code> → nubzuki reference mask</li><li>Back/Left는 같은 점의 좌우반전 projection</li></ul></section>
-      <section class="score-card"><h2>색/빛 단계</h2><ul><li>Geometry는 그대로 하나의 <code>BufferGeometry</code>입니다.</li><li>각 점은 고정된 per-point color attribute를 가집니다.</li><li>cyan→magenta→gold palette와 radial glow shader만 추가했고, view별 geometry/opacity gate는 추가하지 않았습니다.</li></ul></section>
+      <section class="score-card"><h2>색/빛 단계</h2><ul><li>Geometry는 그대로 하나의 <code>BufferGeometry</code>입니다.</li><li>각 점은 두 참조 이미지에서 샘플한 RGB를 하나의 고정 per-point color로 blend합니다.</li><li>radial glow shader만 추가했고, view별 geometry/opacity/color gate는 추가하지 않았습니다.</li></ul></section>
       <section class="score-card"><h2>우선 규정</h2><ul>${contestRules.map((r) => `<li><b>${r.title}</b> — ${r.implementationPolicy}</li>`).join('')}</ul></section>
     </aside>
   </main>
@@ -199,51 +197,12 @@ function analyzeRowBalance(front: MaskRows, side: MaskRows): RowBalanceStats {
   };
 }
 
-function isCanvasBackground(r: number, g: number, b: number, a: number) {
-  if (a < 64) return true;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const saturation = max - min;
-  return r > 226 && g > 226 && b > 226 && saturation < 28;
+function isTransparentBackground(a: number) {
+  return a < 64;
 }
 
 function normalizeRgb(r: number, g: number, b: number): Rgb {
   return [r / 255, g / 255, b / 255];
-}
-
-function enclosedObjectMask(data: Uint8ClampedArray, width: number, height: number) {
-  const reachableBackground = new Uint8Array(width * height);
-  const queue: number[] = [];
-  const pushIfBackground = (x: number, y: number) => {
-    if (x < 0 || x >= width || y < 0 || y >= height) return;
-    const index = y * width + x;
-    if (reachableBackground[index]) return;
-    const i = index * 4;
-    if (!isCanvasBackground(data[i], data[i + 1], data[i + 2], data[i + 3])) return;
-    reachableBackground[index] = 1;
-    queue.push(index);
-  };
-
-  for (let x = 0; x < width; x += 1) {
-    pushIfBackground(x, 0);
-    pushIfBackground(x, height - 1);
-  }
-  for (let y = 0; y < height; y += 1) {
-    pushIfBackground(0, y);
-    pushIfBackground(width - 1, y);
-  }
-
-  for (let head = 0; head < queue.length; head += 1) {
-    const index = queue[head];
-    const x = index % width;
-    const y = Math.floor(index / width);
-    pushIfBackground(x + 1, y);
-    pushIfBackground(x - 1, y);
-    pushIfBackground(x, y + 1);
-    pushIfBackground(x, y - 1);
-  }
-
-  return reachableBackground;
 }
 
 function extractColorRowsFromCanvas(canvas: HTMLCanvasElement): MaskSample[][] {
@@ -252,25 +211,37 @@ function extractColorRowsFromCanvas(canvas: HTMLCanvasElement): MaskSample[][] {
   const rows = Array.from({ length: ROW_COUNT }, () => [] as MaskSample[]);
   const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = image.data;
-  const background = enclosedObjectMask(data, canvas.width, canvas.height);
 
+  // Pairing is row-by-row: a front pixel at row N must meet a side pixel at row N.
+  // Normalize each source mask's active vertical bounds into the common ROW_COUNT
+  // range so tall/short reference images do not lose top/bottom rows solely due to
+  // different transparent margins.
+  let minActiveY = canvas.height - 1;
+  let maxActiveY = 0;
+  let hasActivePixel = false;
   for (let py = 0; py < canvas.height; py += SAMPLE_STRIDE) {
-    const row = Math.floor((py / (canvas.height - 1)) * (ROW_COUNT - 1));
+    for (let px = 0; px < canvas.width; px += SAMPLE_STRIDE) {
+      const idx = (py * canvas.width + px) * 4;
+      if (isTransparentBackground(data[idx + 3])) continue;
+      minActiveY = Math.min(minActiveY, py);
+      maxActiveY = Math.max(maxActiveY, py);
+      hasActivePixel = true;
+    }
+  }
+  if (!hasActivePixel) return rows;
+
+  const activeHeight = Math.max(1, maxActiveY - minActiveY);
+  for (let py = 0; py < canvas.height; py += SAMPLE_STRIDE) {
+    const normalizedY = (py - minActiveY) / activeHeight;
+    const row = THREE.MathUtils.clamp(Math.floor(normalizedY * (ROW_COUNT - 1)), 0, ROW_COUNT - 1);
     for (let px = 0; px < canvas.width; px += SAMPLE_STRIDE) {
       const pixelIndex = py * canvas.width + px;
-      if (background[pixelIndex]) continue;
       const idx = pixelIndex * 4;
-      if (data[idx + 3] < 64) continue;
+      if (isTransparentBackground(data[idx + 3])) continue;
       const coord = ((px / (canvas.width - 1)) - 0.5) * POINT_SCALE_X;
-      let r = data[idx];
-      let g = data[idx + 1];
-      let b = data[idx + 2];
-      if (isCanvasBackground(r, g, b, data[idx + 3])) {
-        // Enclosed white regions such as goose body / eyes / KAIST letters are real object pixels.
-        r = 242;
-        g = 248;
-        b = 255;
-      }
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
       rows[row].push({ coord, color: normalizeRgb(r, g, b) });
     }
   }
@@ -297,8 +268,7 @@ function drawFallbackTextMask(spec: MaskSpec): MaskRows {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) throw new Error('Cannot create 2D mask context');
 
-  ctx.fillStyle = 'black';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = 'white';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -318,14 +288,14 @@ async function drawReferenceImageMask(spec: MaskSpec): Promise<MaskRows> {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) throw new Error('Cannot create 2D image mask context');
 
-  ctx.fillStyle = 'white';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  const margin = 20;
-  const crop = 8;
-  const scale = Math.min((canvas.width - margin * 2) / (image.naturalWidth - crop * 2), (canvas.height - margin * 2) / (image.naturalHeight - crop * 2));
-  const w = (image.naturalWidth - crop * 2) * scale;
-  const h = (image.naturalHeight - crop * 2) * scale;
-  ctx.drawImage(image, crop, crop, image.naturalWidth - crop * 2, image.naturalHeight - crop * 2, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const margin = 28;
+  const sourceWidth = image.naturalWidth;
+  const sourceHeight = image.naturalHeight;
+  const scale = Math.min((canvas.width - margin * 2) / sourceWidth, (canvas.height - margin * 2) / sourceHeight);
+  const w = sourceWidth * scale;
+  const h = sourceHeight * scale;
+  ctx.drawImage(image, 0, 0, sourceWidth, sourceHeight, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
 
   const rows = extractColorRowsFromCanvas(canvas);
 
