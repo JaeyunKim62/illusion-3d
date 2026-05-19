@@ -104,6 +104,29 @@ function validateCosineS1Math() {
   assert(maxStep <= 0.081, `cosine_s1 5-degree side-weight step too high: ${maxStep}`);
 }
 
+function deltaLobeDownWeight(angleDegrees, baseCenterDegrees, downCenterDegrees, sigmaDegrees) {
+  const gaussian = (angle, center) => {
+    const d = (angle - center) / sigmaDegrees;
+    return Math.exp(-0.5 * d * d);
+  };
+  const base = gaussian(angleDegrees, baseCenterDegrees);
+  const down = gaussian(angleDegrees, downCenterDegrees);
+  return down / Math.max(1e-6, base + down);
+}
+
+function validateDeltaLobeMath() {
+  const microDelta = 2.0;
+  const sigma = 0.9;
+  const frontBase = deltaLobeDownWeight(0, 0, microDelta, sigma);
+  const frontDown = deltaLobeDownWeight(microDelta, 0, microDelta, sigma);
+  const sideBase = deltaLobeDownWeight(90, 90, 90 + microDelta, sigma);
+  const sideDown = deltaLobeDownWeight(90 + microDelta, 90, 90 + microDelta, sigma);
+  assert(frontBase < 0.1, `delta_lobe_s1 front base contamination too high: ${frontBase}`);
+  assert(sideBase < 0.1, `delta_lobe_s1 side base contamination too high: ${sideBase}`);
+  assert(frontDown > 0.9, `delta_lobe_s1 front down endpoint too weak: ${frontDown}`);
+  assert(sideDown > 0.9, `delta_lobe_s1 side down endpoint too weak: ${sideDown}`);
+}
+
 function sourceSlice(source, functionName) {
   const start = source.indexOf(`function ${functionName}`);
   if (start < 0) return '';
@@ -123,22 +146,31 @@ function classifySource(source) {
       ? 'shuffled_modulo_max'
       : 'unknown_or_partial';
 
-  const hasEndpointColorAttributes = source.includes('frontColor') && source.includes('sideColor')
+  const hasTwoEndpointColorAttributes = source.includes('frontColor') && source.includes('sideColor')
     && source.includes("geometry.setAttribute('frontColor'") && source.includes("geometry.setAttribute('sideColor'");
+  const hasFourLobeColorAttributes = ['frontBaseColor', 'frontDownColor', 'sideBaseColor', 'sideDownColor']
+    .every((name) => source.includes(name) && source.includes(`geometry.setAttribute('${name}'`));
   const hasCosineBasis = /cos\(.*theta|Math\.cos|cosine_s1|uSideWeight|uFrontWeight/.test(source)
     && /sin\(.*theta|Math\.sin|uSideWeight|uFrontWeight/.test(source);
-  const stillFixedColorOnly = source.includes("geometry.setAttribute('color'") && !hasEndpointColorAttributes;
-  const colorPolicy = hasEndpointColorAttributes && hasCosineBasis
-    ? 'cosine_s1_directional_candidate'
-    : stillFixedColorOnly
-      ? 'fixed_blend_or_single_color_attribute'
-      : 'unknown_or_partial';
+  const hasDeltaLobeBasis = source.includes('delta_lobe_s1')
+    && source.includes('uFrontDownWeight')
+    && source.includes('uSideDownWeight')
+    && source.includes('normalizedDownLobe');
+  const stillFixedColorOnly = source.includes("geometry.setAttribute('color'") && !hasTwoEndpointColorAttributes && !hasFourLobeColorAttributes;
+  const colorPolicy = hasFourLobeColorAttributes && hasCosineBasis && hasDeltaLobeBasis
+    ? 'delta_lobe_s1_directional_material_candidate'
+    : hasTwoEndpointColorAttributes && hasCosineBasis
+      ? 'cosine_s1_directional_candidate'
+      : stillFixedColorOnly
+        ? 'fixed_blend_or_single_color_attribute'
+        : 'unknown_or_partial';
 
-  return { rowPolicy, colorPolicy, usesShuffleInGenerate, usesModuloInGenerate, usesQuantileIndex, sortsRows, hasEndpointColorAttributes, hasCosineBasis };
+  return { rowPolicy, colorPolicy, usesShuffleInGenerate, usesModuloInGenerate, usesQuantileIndex, sortsRows, hasEndpointColorAttributes: hasTwoEndpointColorAttributes || hasFourLobeColorAttributes, hasFourLobeColorAttributes, hasCosineBasis, hasDeltaLobeBasis };
 }
 
 validateQuantileMath();
 validateCosineS1Math();
+validateDeltaLobeMath();
 
 const sourcePath = path.join(root, 'src', 'main.ts');
 const source = await readFile(sourcePath, 'utf8');
@@ -152,12 +184,14 @@ notes.push(`sourceFlags=${JSON.stringify({
   usesQuantileIndex: classification.usesQuantileIndex,
   sortsRows: classification.sortsRows,
   hasEndpointColorAttributes: classification.hasEndpointColorAttributes,
+  hasFourLobeColorAttributes: classification.hasFourLobeColorAttributes,
   hasCosineBasis: classification.hasCosineBasis,
+  hasDeltaLobeBasis: classification.hasDeltaLobeBasis,
 })}`);
 
 if (requireProduction) {
   assert(classification.rowPolicy === 'quantile_max', `production row path must be quantile_max, got ${classification.rowPolicy}`);
-  assert(classification.colorPolicy === 'cosine_s1_directional_candidate', `production color path must be cosine_s1 directional candidate, got ${classification.colorPolicy}`);
+  assert(['cosine_s1_directional_candidate', 'delta_lobe_s1_directional_material_candidate'].includes(classification.colorPolicy), `production color path must be cosine_s1 or delta_lobe_s1 directional candidate, got ${classification.colorPolicy}`);
 }
 
 if (failures.length) {
@@ -171,6 +205,10 @@ if (failures.length) {
 console.log('Algorithm parity harness PASS');
 console.log('- standalone quantile_max coverage/multiplicity/order checks pass');
 console.log('- standalone cosine_s1 endpoint/smoothness checks pass');
+console.log('- standalone delta_lobe_s1 endpoint contamination checks pass');
+if (classification.colorPolicy === 'delta_lobe_s1_directional_material_candidate') {
+  console.log('- source uses fixed-position four-lobe delta_lobe_s1 material attributes');
+}
 for (const note of notes) console.log(`- ${note}`);
 if (!requireProduction) {
   console.log('- baseline mode: source classification is reported but not enforced');

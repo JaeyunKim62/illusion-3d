@@ -1,229 +1,201 @@
-# Current handoff — 2-view goose / nubzuki lenticular point cloud
+# Current handoff — material-state lenticular point cloud
 
-Date: 2026-05-18
-Branch: `reference-image-two-view`
-Latest important commit: `e94de25 test: enforce shared 2-view point space`
+Date: 2026-05-19
+Branch: `delta-lenticular-lobes-20260519`
 
 ## Current direction
 
-The project is now a KAIST 3D Rendering Contest browser/WebGL artifact based on one shared 3D point cloud.
+The current artifact is a browser/WebGL KAIST rendering demo built from one shared 3D point cloud. The latest work adds a small-angle material-state lenticular effect on top of the existing front/right readings.
 
-The artifact should be judged and developed as:
+Final visual story:
 
 ```text
-One physical point set P, multiple orthographic readings.
-For each point p=(x,y,z):
-  Front +Z view uses (x,y) and should read as goose.
-  Right +X view uses (z,y) and should read as nubzuki.
++Z base:      Nubzuki, white heart and white KAIST
++Z micro +2°: Nubzuki, red heart and red KAIST
++X base:      Kumdori, normal state
++X micro +2°: Kumdori, red antenna/star and redder cheeks
 ```
 
-This is the authoritative direction. Older `Perceptual Twin Room` and failed 3-view/top-projection materials are historical only.
+The `-down` filenames are historical. They now mean alternate color/material state, not pose-down geometry.
 
 ## Non-negotiable invariant
 
-Keep exactly one physical point cloud for the readings.
+Keep exactly one physical point cloud.
 
 Allowed:
 
-- one `THREE.Points` object for the contest object,
-- one shared `THREE.BufferGeometry`,
-- fixed per-point `position`, `frontColor`, and `sideColor` attributes,
-- shader glow / splat styling,
-- helper axes/grid/labels as non-reading diagnostics,
-- front/right/back/left/reveal/orbit camera modes.
+- one `THREE.Points` object for the contest object;
+- one shared `THREE.BufferGeometry`;
+- fixed per-point `position`;
+- fixed per-point color/material attributes: `frontBaseColor`, `frontDownColor`, `sideBaseColor`, `sideDownColor`;
+- shader glow/splat styling;
+- helper axes/grid/labels as non-reading diagnostics.
 
 Forbidden:
 
-- second point cloud for the second image,
-- hidden image/text billboards,
-- view-dependent opacity gates,
-- depth-test reading gates,
-- top/third-view projection-only points,
-- fallback points that exist only to satisfy one view.
+- second point cloud for the second image/state;
+- hidden image/text billboards;
+- view-dependent opacity gates;
+- depth-test reading gates;
+- texture swaps;
+- per-view geometry swaps;
+- projection-only/fallback points that exist for only one view.
 
-Reason: the failed 3-view attempt added top projection-only points, which appeared as barcode-like background noise in front/right views. The current harness prevents that regression.
+## Added algorithm
 
-## Harness / verification
+The added algorithm is `delta_lobe_s1` material-state blending.
 
-Main check:
+Each point `p=(x,y,z)` stores four color basis samples:
+
+```text
+frontBaseColor = sample(nubzuki.png,      x, y)
+frontDownColor = sample(nubzuki-down.png, x, y)
+sideBaseColor  = sample(kumdori.png,      z, y)
+sideDownColor  = sample(kumdori-down.png, z, y)
+```
+
+Camera signed azimuth:
+
+```text
+theta = atan2(camera.x, camera.z)
+```
+
+Lobe centers:
+
+```text
+front base = 0°
+front alt  = 2°
+side base  = 90°
+side alt   = 92°
+sigma      = 0.9°
+```
+
+For a base center `b` and alternate center `a`:
+
+```text
+G(theta, c) = exp(-0.5 * ((theta - c) / sigma)^2)
+altWeight = G(theta, a) / (G(theta, b) + G(theta, a))
+```
+
+The shader first computes per-view material state colors, then applies the existing front/right directional blend:
+
+```text
+C_front = mix(frontBaseColor, frontDownColor, frontAltWeight)
+C_side  = mix(sideBaseColor,  sideDownColor,  sideAltWeight)
+C_final = frontViewWeight(theta) * C_front + sideViewWeight(theta) * C_side
+```
+
+## Asset decisions
+
+Rejected direction:
+
+- Nubzuki arm/hand-down pose change.
+- Reason: fixed positions plus no opacity gate cannot move silhouette support. The result looked different, but not like a real arm pose change.
+
+Accepted direction:
+
+- same silhouette, same pose, same bbox;
+- internal material/color changes only.
+
+Current assets:
+
+```text
+artifacts/reference-image/nubzuki.png
+artifacts/reference-image/nubzuki-down.png
+artifacts/reference-image/kumdori.png
+artifacts/reference-image/kumdori-down.png
+```
+
+Backups kept for context:
+
+```text
+artifacts/reference-image/nubzuki-down.pose-backup.png
+artifacts/reference-image/kumdori-down.pose-backup.png
+artifacts/reference-image/nubzuki.heart-original-backup.png
+```
+
+## Viewer / recording
+
+Viewer buttons include:
+
+- `Front +Z: nubzuki`
+- `Front +2°: nubzuki-down`
+- `Right +X: kumdori`
+- `Right +2°: kumdori-down`
+- `Back −Z: mirrored A` and `Left −X: mirrored B` as diagnostics
+- `3D reveal`
+- `자유 Orbit`
+
+10-second WebM path:
+
+```text
++Z Nubzuki white state hold
+→ +Z micro red heart/KAIST hold
+→ smooth +Z to +X arc
+→ +X Kumdori normal hold
+→ +X micro red antenna/cheeks hold
+→ positive-Z overhead reveal
+```
+
+The old recording path that moved to `−Z` mirrored front was removed from the main recording story.
+
+## Latest verification
+
+Latest checked commands:
 
 ```bash
+npm run harness:algorithm:require-production
 npm run harness
 ```
 
-This runs:
+Observed result:
 
-```bash
-node scripts/shared-space-harness.mjs && npm run build
-```
+- algorithm harness PASS;
+- production algorithm harness PASS;
+- shared-space/no-background-noise harness PASS;
+- build PASS;
+- only Vite chunk-size warning from bundled Three.js.
 
-The harness verifies:
-
-- no `addTopProjectionPoints`,
-- no `fallbackPoints`,
-- no `topProjection`,
-- no `Top +Y` / `Bottom -Y` UI,
-- `generateSharedPointCloud()` only takes front and side masks,
-- QA exposes `projectionOnlyPointCount: 0`,
-- QA exposes `noProjectionOnlyPoints`,
-- `viewDependentOpacityGate: false`,
-- `depthTestReadingGate: false`.
-
-Final package sanity check:
-
-```bash
-npm run qa:submission
-```
-
-Latest verified report:
+Runtime QA expectations:
 
 ```text
-artifacts/final-qa-20260518T021032Z.json
+scenePointsCount = 1
+pointCloudUsesSharedGeometry = true
+projectionOnlyPointCount = 0
+noProjectionOnlyPoints = true
+viewDependentOpacityGate = false
+textureSwap = false
+geometrySwapCount = 0
+pointCloudInvariantHolds = true
+frontActiveIoU ≈ 1.0
+frontFallbackRatio = 0.0%
+sideActiveIoU ≈ 1.0
+sideFallbackRatio = 0.0%
 ```
 
-Latest observed results:
+## Current evidence
 
-- `npm run harness`: PASS
-- build: PASS, only Vite chunk-size warning from bundled Three.js
-- dist size: 0.531 MB
-- source bundle excluding node_modules/.git: 14.427 MB
-- representative evidence PNGs under 5MB
-- required files present
-
-## Browser evidence
-
-Latest clean 2-view no-background-noise screenshots:
+Final material-state evidence should be kept in:
 
 ```text
-artifacts/evidence/front-goose-2view-common-20260518.png
-artifacts/evidence/right-nubzuki-2view-common-20260518.png
+artifacts/delta-lenticular/final-material-state-20260519/
 ```
 
-Current evidence JSON:
+Earlier exploratory screenshots in `artifacts/delta-lenticular/` include rejected or intermediate states and should not be treated as final quality claims unless explicitly named as such.
 
-```text
-artifacts/final-qa-20260518T021032Z.json
-```
+## Known limitations
 
-Older color/glow evidence exists, but after the 3-view revert the clean common-point evidence above is the safer baseline.
+- This is not a 4-view geometric reconstruction solver.
+- It does not support large pose/silhouette changes such as lowering an arm.
+- The micro-angle transition is soft, not a hard binary switch.
+- Thin lettering can be softened by point-cloud/scanline sampling.
+- Mid-arc views blend front and side readings.
+- Best description: `fixed one-cloud + directional material/color lobe`.
 
-## Current source map
+## Source map
 
-- `src/main.ts`: viewer UI, mask extraction, shared point-cloud generation, quantile row materialization, endpoint color attributes, cosine directional shader color, view controls, capture controls, runtime QA.
-- `src/contestRules.ts`: KAIST rule summary displayed in the app.
-- `scripts/shared-space-harness.mjs`: regression harness for the 2-view no-projection-only invariant.
-- `scripts/final-qa.mjs`: artifact/package size and required-file sanity report.
-- `README.md`: current run instructions, invariant, evidence, and roadmap.
-- `writeup/writeup.md`: updated current write-up draft for the 2-view lenticular point-cloud direction.
-- `project_proposal.md`: originally written for the older perceptual-room direction; now has a current-status warning at the top.
-
-## Latest color pass result
-
-Implemented the requested quality pass:
-
-```text
-2-view로 넙죽이와 거위 색까지 표현해서 제대로 만들어줘라.
-```
-
-What changed:
-
-- Reference mask extraction now flood-fills white page background from the canvas edges, so enclosed white object regions remain active.
-- Each row sample carries RGB from the reference image, not only an x/z coordinate.
-- Each shared 3D point stores endpoint RGB attributes from the paired front/side reference pixels; the shader computes cosine directional color from the camera direction.
-- Density was raised from `SAMPLE_STRIDE=2`, `ROW_COUNT=150` to `SAMPLE_STRIDE=1`, `ROW_COUNT=190`; current cloud has 18,102 shared points.
-- Point size/framing were tightened for clearer canonical screenshots.
-- No view-dependent opacity/geometry/texture swap was introduced.
-
-Latest algorithm implementation checks:
-
-- `npm run harness`: PASS
-- `npm run harness:algorithm`: PASS
-- `npm run harness:algorithm:require-production`: PASS
-- `npm run qa:submission`: PASS, report `artifacts/final-qa-20260518T144434Z.json`
-- `npm run qa:visual-metrics -- ...`: PASS, reports include `artifacts/algorithm-implementation/visual-metrics-iteration8-softsplat-20260518.json`
-- Browser console in the dev app: no JS errors
-- Runtime QA: `scenePointsCount=1`, shared geometry PASS, `projectionOnlyPointCount=0`, `noProjectionOnlyPoints=true`, `rowPolicy=quantile_max/sorted-midpoint-quantile`, `yJitter=deterministic-low-discrepancy-y-jitter@0.42`, `sizeJitter=±0.10`, `pointScaleY=1.28`, `pointSize=2.65`, `alpha=0.68`, `colorPolicy=cosine_s1-directional-color`
-
-Latest algorithm evidence:
-
-```text
-artifacts/algorithm-implementation/front-quantile-directional-20260518.png
-artifacts/algorithm-implementation/right-quantile-directional-20260518.png
-artifacts/algorithm-implementation/reveal-quantile-directional-20260518.png
-artifacts/algorithm-implementation/browser-qa-20260518.json
-artifacts/algorithm-implementation/front-jitter-splat-20260518.png
-artifacts/algorithm-implementation/right-jitter-splat-20260518.png
-artifacts/algorithm-implementation/reveal-jitter-splat-20260518.png
-artifacts/algorithm-implementation/browser-qa-jitter-splat-20260518.json
-artifacts/algorithm-implementation/visual-metrics-iteration3-20260518.json
-artifacts/algorithm-implementation/front-sizejitter-20260518.png
-artifacts/algorithm-implementation/right-sizejitter-20260518.png
-artifacts/algorithm-implementation/reveal-sizejitter-20260518.png
-artifacts/algorithm-implementation/browser-qa-sizejitter-20260518.json
-artifacts/algorithm-implementation/visual-metrics-iteration4-20260518.json
-artifacts/algorithm-implementation/front-alpha-jitter-rejected-20260518.png
-artifacts/algorithm-implementation/browser-qa-alpha-jitter-rejected-20260518.json
-artifacts/algorithm-implementation/front-rowspacing-wide-rejected-20260518.png
-artifacts/algorithm-implementation/right-rowspacing-wide-rejected-20260518.png
-artifacts/algorithm-implementation/browser-qa-rowspacing-wide-rejected-20260518.json
-artifacts/algorithm-implementation/front-rowspacing-128-20260518.png
-artifacts/algorithm-implementation/right-rowspacing-128-20260518.png
-artifacts/algorithm-implementation/reveal-rowspacing-128-20260518.png
-artifacts/algorithm-implementation/browser-qa-rowspacing-128-20260518.json
-artifacts/algorithm-implementation/front-rowspacing-128-softsplat-20260518.png
-artifacts/algorithm-implementation/right-rowspacing-128-softsplat-20260518.png
-artifacts/algorithm-implementation/reveal-rowspacing-128-softsplat-20260518.png
-artifacts/algorithm-implementation/browser-qa-rowspacing-128-softsplat-20260518.json
-artifacts/algorithm-implementation/visual-metrics-iteration8-softsplat-20260518.json
-```
-
-Observed quality:
-
-- Front goose remains recognizable and now uses front endpoint colors in the front view.
-- Right image/cake-side view is recognizable with endpoint color present.
-- Latest tuned pass (`POINT_SCALE_Y=1.28`, `VIEW_HALF_HEIGHT=1.54`, `SUB_ROW_JITTER_SCALE=0.42`, `POINT_SIZE=2.65`, `uAlpha=0.68`, `POINT_SIZE_JITTER=0.10`) is acceptable to keep: front/right readability remains good, reveal feels more solid/natural, and one-cloud invariant remains clear.
-- Row spacing experiment result: aggressive `POINT_SCALE_Y=1.38` made bands too dominant and was rejected; intermediate `1.28` is the current best compromise.
-- Remaining visual weakness: horizontal row banding/scanline artifacts are still visible; side coverage remains about 75.7% due to unmatched side-only rows.
-- Rejected experiment: deterministic alpha jitter ±0.08 added visible mottled/speckled noise without reducing banding enough, so it was reverted; final state keeps deterministic point-size jitter only.
-
-## Current decision: freeze this viewer baseline
-
-The current 2-view viewer is sufficient as a stable demo baseline. Do not keep spending effort on row banding unless a later submission polish pass explicitly needs it.
-
-- Keep current best tuning: `POINT_SCALE_Y=1.28`, `VIEW_HALF_HEIGHT=1.54`, `SUB_ROW_JITTER_SCALE=0.42`, `POINT_SIZE=2.65`, `uAlpha=0.68`, `POINT_SIZE_JITTER=0.10`.
-- Treat horizontal row banding as a known structural footprint of row-shared 2-view construction, not as an active blocker.
-- Final PNG/MP4 packaging can wait until closer to the submission deadline.
-- Preserve this branch as fallback before starting riskier concepts.
-
-## Next concept directions
-
-See `.hermes/plans/next-illusion-concepts-20260519.md` for the concise plan. Shortlist:
-
-1. Asset-search scorer for better 2-view/next-view candidates.
-2. One-direction lenticular motion: camera left/right or up/down changes the visible image.
-3. Designed 3-view support illusion with feasibility checks before rendering.
-4. Camera-driven animation illusion from 2-3 frames.
-5. Reveal/presentation fallback only near submission if needed.
-
-## Previous suggested implementation approach for color
-
-Start with a small spike before changing the main renderer:
-
-1. Sample actual RGB from both reference images at the matched `(x,y)` and `(z,y)` coordinates.
-2. Because each physical point must have one fixed color, combine the two target colors with a deterministic policy:
-   - weighted average if colors are compatible,
-   - luminance-preserving blend,
-   - or duplicate only within the same physical-coordinate generation rule if it does not create separate per-view layers.
-3. Add QA fields for color policy, e.g. `colorPolicy`, `frontColorError`, `sideColorError`, if feasible.
-4. Visually verify that color improves both views without softening silhouettes or adding background noise.
-5. Keep point size/glow conservative; if the image becomes blurry, reduce glow before adding density.
-
-## Scoring assessment
-
-The clean 2-view shared point-cloud idea is stronger than the noisy 3-view attempt because it has a clear technical invariant and visible reveal. For better KAIST scoring, the project still needs:
-
-- color fidelity that makes goose/nubzuki recognizable without relying on labels,
-- final representative PNG and final MP4 from the current branch, not older historical videos,
-- concise write-up explaining row-matched projection constraints,
-- explicit browser evidence that there is one shared geometry and zero projection-only points,
-- final polish pass on splat density, glow, camera framing, and UI clutter.
+- `src/main.ts`: main implementation, four-lobe material-state shader, viewer and recording path.
+- `scripts/algorithm-parity-harness.mjs`: checks `quantile_max`, `cosine_s1`, and `delta_lobe_s1` source/math properties.
+- `scripts/shared-space-harness.mjs`: one-cloud/no-projection-only invariant and build harness.
+- `README.md`: user-facing run/algorithm/limitations summary.
+- `artifacts/reference-image/`: final base/alt reference images and backups.

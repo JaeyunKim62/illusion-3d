@@ -3,11 +3,19 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { contestRules } from './contestRules.ts';
 import './styles.css';
 
-type ViewMode = 'front' | 'right' | 'back' | 'left' | 'reveal' | 'orbit';
+type ViewMode = 'front' | 'frontDown' | 'right' | 'rightDown' | 'back' | 'left' | 'reveal' | 'orbit';
 type MaskSpec = { name: string; label: string; imageUrl?: string };
 type Rgb = readonly [number, number, number];
 type MaskSample = { coord: number; color: Rgb };
 type MaskRows = { spec: MaskSpec; rows: MaskSample[][]; rowCount: number; width: number; height: number; activePixels: number };
+type DownSamplingStats = Readonly<{
+  frontActiveIoU: number;
+  sideActiveIoU: number;
+  frontFallbackCount: number;
+  sideFallbackCount: number;
+  frontFallbackRatio: number;
+  sideFallbackRatio: number;
+}>;
 type RowSummary = { min: number; median: number; max: number };
 type RowBalanceStats = {
   activeRows: Readonly<{ front: number; side: number; matched: number }>;
@@ -27,7 +35,8 @@ type CloudStats = {
   projectionOnlyPointCount: 0;
   noProjectionOnlyPoints: true;
   backgroundNoisePolicy: 'no projection-only points; every rendered point must be paired from front and side masks';
-  colorPolicy: 'cosine_s1 directional color from frontColor/sideColor endpoint attributes';
+  colorPolicy: 'delta_lobe_s1 directional material from four fixed endpoint/down color attributes';
+  downSampling: DownSamplingStats;
   rowMaterializationPolicy: 'quantile_max';
   rowOrderPolicy: 'sorted-midpoint-quantile';
   subRowJitterPolicy: 'deterministic-low-discrepancy-y-jitter';
@@ -60,18 +69,37 @@ type LenticularQa = {
     names: readonly string[];
     positionCount: number;
     positionItemSize: number;
-    frontColorCount: number;
-    frontColorItemSize: number;
-    sideColorCount: number;
-    sideColorItemSize: number;
+    frontBaseColorCount: number;
+    frontBaseColorItemSize: number;
+    frontDownColorCount: number;
+    frontDownColorItemSize: number;
+    sideBaseColorCount: number;
+    sideBaseColorItemSize: number;
+    sideDownColorCount: number;
+    sideDownColorItemSize: number;
   }>;
   visualStyle: Readonly<{
-    colorSource: 'frontColor/sideColor endpoint attributes';
-    colorPolicy: 'cosine_s1-directional-color';
+    colorSource: 'frontBaseColor/frontDownColor/sideBaseColor/sideDownColor fixed material attributes';
+    colorPolicy: 'delta_lobe_s1-directional-material';
     shaderGlowOnly: boolean;
     viewDependentOpacityGate: boolean;
     depthTestReadingGate: boolean;
+    textureSwap: boolean;
+    geometrySwapCount: 0;
   }>;
+  algorithm: 'delta_lobe_s1_directional_material';
+  materialPolicy: 'fixed-position four-lobe directional color attributes';
+  positionHash: string;
+  positionHashStableAcrossViews: true;
+  referenceImages: Readonly<{ frontBase: string; frontDown: string; sideBase: string; sideDown: string }>;
+  lobe: Readonly<{
+    microDeltaDegrees: number;
+    sigmaDegrees: number;
+    centersDegrees: Readonly<{ frontBase: number; frontDown: number; sideBase: number; sideDown: number }>;
+    weightsAtCanonicalSamples: Readonly<Record<string, number>>;
+    maxWrongAxisLeakageNearEndpoint: number;
+  }>;
+  downSampling: DownSamplingStats;
   pointCloudInvariantHolds: boolean;
 };
 
@@ -83,8 +111,10 @@ declare global {
 
 type GeneratedCloud = {
   positions: Float32Array;
-  frontColors: Float32Array;
-  sideColors: Float32Array;
+  frontBaseColors: Float32Array;
+  frontDownColors: Float32Array;
+  sideBaseColors: Float32Array;
+  sideDownColors: Float32Array;
   stats: CloudStats;
 };
 
@@ -113,6 +143,18 @@ const SIDE_SPEC: MaskSpec = {
   label: 'KUMDORI',
   imageUrl: '/artifacts/reference-image/kumdori.png',
 };
+const MICRO_DELTA_DEGREES = 2.0;
+const SIGMA_DEGREES = 0.9;
+const FRONT_DOWN_SPEC: MaskSpec = {
+  name: 'Front +Z micro-angle',
+  label: 'NUBZUKI-DOWN',
+  imageUrl: '/artifacts/reference-image/nubzuki-down.png',
+};
+const SIDE_DOWN_SPEC: MaskSpec = {
+  name: 'Right +X micro-angle',
+  label: 'KUMDORI-DOWN',
+  imageUrl: '/artifacts/reference-image/kumdori-down.png',
+};
 const RNG_SEED = 4792026;
 
 app.innerHTML = `
@@ -136,7 +178,9 @@ app.innerHTML = `
       <p class="lead">이 브랜치는 글자 대신 <code>artifacts/reference-image</code>의 두 참조 이미지를 사용합니다. 두 이미지는 별도 billboard가 아니라 <b>동일한 점 하나하나</b>의 좌표 <code>(x,y,z)</code>를 공유합니다. 정면 정사영은 <code>(x,y)</code>로 <b>${FRONT_SPEC.label.toLowerCase()}</b>, 우측 정사영은 <code>(z,y)</code>로 <b>${SIDE_SPEC.label.toLowerCase()}</b> 이미지를 형성합니다.</p>
       <div class="actions">
         <button id="frontBtn" data-mode="front">Front +Z: ${FRONT_SPEC.label.toLowerCase()}</button>
+        <button id="frontDownBtn" data-mode="frontDown">Front +2°: ${FRONT_DOWN_SPEC.label.toLowerCase()}</button>
         <button id="rightBtn" data-mode="right">Right +X: ${SIDE_SPEC.label.toLowerCase()}</button>
+        <button id="rightDownBtn" data-mode="rightDown">Right +2°: ${SIDE_DOWN_SPEC.label.toLowerCase()}</button>
         <button id="backBtn" data-mode="back">Back −Z: mirrored A</button>
         <button id="leftBtn" data-mode="left">Left −X: mirrored B</button>
         <button id="revealBtn" data-mode="reveal">3D reveal</button>
@@ -145,10 +189,10 @@ app.innerHTML = `
         <button id="recordBtn">10초 WebM 녹화</button>
       </div>
       <p class="hint" id="overlayHelp">Orthographic canonical views only: no opacity gating, no second point set, no hidden duplicate text. Rotate/reveal to inspect the single physical point cloud.</p>
-      <p class="capture-status" id="captureStatus" role="status">Capture ready. Use Front/Right before PNG capture, or record the 10s +X → −Z → 45° overhead reveal path.</p>
+      <p class="capture-status" id="captureStatus" role="status">Capture ready. Use Front/Front+2°/Right/Right+2° before PNG capture, or record the 10s +Z white→red state, +X normal→red-accent state, then +Z overhead reveal path.</p>
       <section class="score-card"><h2>Invariant QA</h2><p class="qa-metric" id="invariantQaMetric">checking physical point-set invariant…</p></section>
       <section class="score-card"><h2>수학적 정의</h2><ul><li>점 하나: <code>p=(x,y,z)</code></li><li>Front +Z projection: <code>πZ(p)=(x,y)</code> → ${FRONT_SPEC.label.toLowerCase()} reference mask</li><li>Right +X projection: <code>πX(p)=(z,y)</code> → ${SIDE_SPEC.label.toLowerCase()} reference mask</li><li>Back/Left는 같은 점의 좌우반전 projection</li></ul></section>
-      <section class="score-card"><h2>색/빛 단계</h2><ul><li>Geometry는 그대로 하나의 <code>BufferGeometry</code>입니다.</li><li>각 점은 두 참조 이미지의 endpoint RGB(<code>frontColor</code>/<code>sideColor</code>)를 보관합니다.</li><li>shader가 카메라 각도에 따라 <code>cosine_s1</code> directional color를 계산합니다. Geometry/opacity/texture gate는 추가하지 않았습니다.</li></ul></section>
+      <section class="score-card"><h2>색/빛 단계</h2><ul><li>Geometry는 그대로 하나의 <code>BufferGeometry</code>입니다.</li><li>각 점은 base/down 네 참조 이미지의 고정 RGB material basis(<code>frontBaseColor</code>/<code>frontDownColor</code>/<code>sideBaseColor</code>/<code>sideDownColor</code>)를 보관합니다.</li><li>shader가 signed camera angle에 따라 <code>delta_lobe_s1</code> directional material color를 계산합니다. Geometry/opacity/texture gate는 추가하지 않았습니다.</li></ul></section>
       <section class="score-card"><h2>우선 규정</h2><ul>${contestRules.map((r) => `<li><b>${r.title}</b> — ${r.implementationPolicy}</li>`).join('')}</ul></section>
     </aside>
   </main>
@@ -215,8 +259,57 @@ function analyzeRowBalance(front: MaskRows, side: MaskRows): RowBalanceStats {
   };
 }
 
-function isTransparentBackground(a: number) {
-  return a < 64;
+function isEdgeBackgroundCandidate(r: number, g: number, b: number, a: number) {
+  if (a < 64) return true;
+  const luma = (r + g + b) / 3;
+  const chroma = Math.max(r, g, b) - Math.min(r, g, b);
+  // Some down-reference PNGs ship with a semi-transparent gray page at the
+  // image edge (for example alpha≈128). Treat only low-chroma edge-connected
+  // semi-transparent regions as background; enclosed opaque whites remain active.
+  return a < 192 && chroma <= 32 && luma >= 72;
+}
+
+function buildEdgeBackgroundMask(canvas: HTMLCanvasElement, data: Uint8ClampedArray) {
+  const width = canvas.width;
+  const height = canvas.height;
+  const background = new Uint8Array(width * height);
+  const queue: number[] = [];
+  const trySeed = (px: number, py: number) => {
+    const pixelIndex = py * width + px;
+    if (background[pixelIndex]) return;
+    const idx = pixelIndex * 4;
+    if (!isEdgeBackgroundCandidate(data[idx], data[idx + 1], data[idx + 2], data[idx + 3])) return;
+    background[pixelIndex] = 1;
+    queue.push(pixelIndex);
+  };
+
+  for (let x = 0; x < width; x += 1) {
+    trySeed(x, 0);
+    trySeed(x, height - 1);
+  }
+  for (let y = 1; y < height - 1; y += 1) {
+    trySeed(0, y);
+    trySeed(width - 1, y);
+  }
+
+  for (let head = 0; head < queue.length; head += 1) {
+    const pixelIndex = queue[head];
+    const x = pixelIndex % width;
+    const y = Math.floor(pixelIndex / width);
+    const neighbors = [pixelIndex - 1, pixelIndex + 1, pixelIndex - width, pixelIndex + width];
+    for (const next of neighbors) {
+      if (next < 0 || next >= background.length || background[next]) continue;
+      const nx = next % width;
+      const ny = Math.floor(next / width);
+      if (Math.abs(nx - x) + Math.abs(ny - y) !== 1) continue;
+      const idx = next * 4;
+      if (!isEdgeBackgroundCandidate(data[idx], data[idx + 1], data[idx + 2], data[idx + 3])) continue;
+      background[next] = 1;
+      queue.push(next);
+    }
+  }
+
+  return background;
 }
 
 function normalizeRgb(r: number, g: number, b: number): Rgb {
@@ -229,6 +322,7 @@ function extractColorRowsFromCanvas(canvas: HTMLCanvasElement): MaskSample[][] {
   const rows = Array.from({ length: ROW_COUNT }, () => [] as MaskSample[]);
   const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = image.data;
+  const edgeBackground = buildEdgeBackgroundMask(canvas, data);
 
   // Pairing is row-by-row: a front pixel at row N must meet a side pixel at row N.
   // Normalize each source mask's active vertical bounds into the common ROW_COUNT
@@ -239,8 +333,9 @@ function extractColorRowsFromCanvas(canvas: HTMLCanvasElement): MaskSample[][] {
   let hasActivePixel = false;
   for (let py = 0; py < canvas.height; py += SAMPLE_STRIDE) {
     for (let px = 0; px < canvas.width; px += SAMPLE_STRIDE) {
-      const idx = (py * canvas.width + px) * 4;
-      if (isTransparentBackground(data[idx + 3])) continue;
+      const pixelIndex = py * canvas.width + px;
+      const idx = pixelIndex * 4;
+      if (edgeBackground[pixelIndex]) continue;
       minActiveY = Math.min(minActiveY, py);
       maxActiveY = Math.max(maxActiveY, py);
       hasActivePixel = true;
@@ -255,7 +350,7 @@ function extractColorRowsFromCanvas(canvas: HTMLCanvasElement): MaskSample[][] {
     for (let px = 0; px < canvas.width; px += SAMPLE_STRIDE) {
       const pixelIndex = py * canvas.width + px;
       const idx = pixelIndex * 4;
-      if (isTransparentBackground(data[idx + 3])) continue;
+      if (edgeBackground[pixelIndex]) continue;
       const coord = ((px / (canvas.width - 1)) - 0.5) * POINT_SCALE_X;
       const r = data[idx];
       const g = data[idx + 1];
@@ -299,7 +394,13 @@ function drawFallbackTextMask(spec: MaskSpec): MaskRows {
 
 async function drawReferenceImageMask(spec: MaskSpec): Promise<MaskRows> {
   if (!spec.imageUrl) return drawFallbackTextMask(spec);
-  const image = await loadImage(spec.imageUrl);
+  let image: HTMLImageElement;
+  try {
+    image = await loadImage(spec.imageUrl);
+  } catch (error) {
+    console.warn(`Falling back to text mask for ${spec.label}: ${(error as Error).message}`);
+    return drawFallbackTextMask(spec);
+  }
   const canvas = document.createElement('canvas');
   canvas.width = MASK_WIDTH;
   canvas.height = MASK_HEIGHT;
@@ -334,14 +435,70 @@ function quantileIndex(k: number, sourceLength: number, targetLength: number) {
   return Math.min(sourceLength - 1, Math.floor((k + 0.5) * sourceLength / targetLength));
 }
 
-function generateSharedPointCloud(front: MaskRows, side: MaskRows): GeneratedCloud {
+function estimateActiveIoU(base: MaskRows, down: MaskRows) {
+  let intersection = 0;
+  let union = 0;
+  for (let row = 0; row < ROW_COUNT; row += 1) {
+    const baseSet = new Set(base.rows[row].map((sample) => sample.coord.toFixed(4)));
+    const downSet = new Set(down.rows[row].map((sample) => sample.coord.toFixed(4)));
+    const keys = new Set([...baseSet, ...downSet]);
+    union += keys.size;
+    for (const key of keys) {
+      if (baseSet.has(key) && downSet.has(key)) intersection += 1;
+    }
+  }
+  return union === 0 ? 0 : intersection / union;
+}
+
+type DownColorSample = { color: Rgb; fallback: boolean };
+
+function sampleDownColor(rowSamples: MaskSample[], coord: number): DownColorSample {
+  if (rowSamples.length === 0) return { color: [0, 0, 0], fallback: true };
+  let nearest = rowSamples[0];
+  let nearestDistance = Math.abs(nearest.coord - coord);
+  for (let i = 1; i < rowSamples.length; i += 1) {
+    const candidate = rowSamples[i];
+    const distance = Math.abs(candidate.coord - coord);
+    if (distance < nearestDistance) {
+      nearest = candidate;
+      nearestDistance = distance;
+    }
+  }
+  const sixPixelsInWorld = (6 / Math.max(1, MASK_WIDTH - 1)) * POINT_SCALE_X;
+  return { color: nearest.color, fallback: nearestDistance > sixPixelsInWorld };
+}
+
+function blendRgb(a: Rgb, b: Rgb, t: number): Rgb {
+  return [
+    THREE.MathUtils.lerp(a[0], b[0], t),
+    THREE.MathUtils.lerp(a[1], b[1], t),
+    THREE.MathUtils.lerp(a[2], b[2], t),
+  ];
+}
+
+function createDownSamplingStats(front: MaskRows, frontDown: MaskRows, side: MaskRows, sideDown: MaskRows, frontFallbackCount: number, sideFallbackCount: number, pointCount: number): DownSamplingStats {
+  return Object.freeze({
+    frontActiveIoU: estimateActiveIoU(front, frontDown),
+    sideActiveIoU: estimateActiveIoU(side, sideDown),
+    frontFallbackCount,
+    sideFallbackCount,
+    frontFallbackRatio: frontFallbackCount / Math.max(1, pointCount),
+    sideFallbackRatio: sideFallbackCount / Math.max(1, pointCount),
+  });
+}
+
+function generateSharedPointCloud(front: MaskRows, side: MaskRows, frontDown: MaskRows, sideDown: MaskRows): GeneratedCloud {
   const rowBalance = analyzeRowBalance(front, side);
   const positions: number[] = [];
-  const frontColors: number[] = [];
-  const sideColors: number[] = [];
+  const frontBaseColors: number[] = [];
+  const frontDownColors: number[] = [];
+  const sideBaseColors: number[] = [];
+  const sideDownColors: number[] = [];
   let rowsUsed = 0;
   let frontUsed = 0;
   let sideUsed = 0;
+  let frontFallbackCount = 0;
+  let sideFallbackCount = 0;
 
   for (let row = 0; row < ROW_COUNT; row += 1) {
     const frontSamples = [...front.rows[row]].sort((a, b) => a.coord - b.coord);
@@ -350,26 +507,38 @@ function generateSharedPointCloud(front: MaskRows, side: MaskRows): GeneratedClo
     const count = Math.max(frontSamples.length, sideSamples.length);
     if (count <= 0) continue;
     rowsUsed += 1;
+    const frontDownSamples = [...frontDown.rows[row]].sort((a, b) => a.coord - b.coord);
+    const sideDownSamples = [...sideDown.rows[row]].sort((a, b) => a.coord - b.coord);
     for (let i = 0; i < count; i += 1) {
       const y = rowToY(row, subRowJitter(row, i));
       const frontSample = frontSamples[quantileIndex(i, frontSamples.length, count)];
       const sideSample = sideSamples[quantileIndex(i, sideSamples.length, count)];
+      const frontDownSample = sampleDownColor(frontDownSamples, frontSample.coord);
+      const sideDownSample = sampleDownColor(sideDownSamples, sideSample.coord);
       const x = frontSample.coord;
       const z = -sideSample.coord;
       positions.push(x, y, z);
-      frontColors.push(...frontSample.color);
-      sideColors.push(...sideSample.color);
+      frontBaseColors.push(...frontSample.color);
+      frontDownColors.push(...(frontDownSample.fallback ? blendRgb(frontSample.color, frontDownSample.color, 0.65) : frontDownSample.color));
+      sideBaseColors.push(...sideSample.color);
+      sideDownColors.push(...(sideDownSample.fallback ? blendRgb(sideSample.color, sideDownSample.color, 0.65) : sideDownSample.color));
+      if (frontDownSample.fallback) frontFallbackCount += 1;
+      if (sideDownSample.fallback) sideFallbackCount += 1;
       frontUsed += 1;
       sideUsed += 1;
     }
   }
 
+  const pointCount = positions.length / 3;
+  const downSampling = createDownSamplingStats(front, frontDown, side, sideDown, frontFallbackCount, sideFallbackCount, pointCount);
   return {
     positions: new Float32Array(positions),
-    frontColors: new Float32Array(frontColors),
-    sideColors: new Float32Array(sideColors),
+    frontBaseColors: new Float32Array(frontBaseColors),
+    frontDownColors: new Float32Array(frontDownColors),
+    sideBaseColors: new Float32Array(sideBaseColors),
+    sideDownColors: new Float32Array(sideDownColors),
     stats: {
-      points: positions.length / 3,
+      points: pointCount,
       frontCoverage: Math.min(1, frontUsed / Math.max(1, front.activePixels)),
       sideCoverage: Math.min(1, sideUsed / Math.max(1, side.activePixels)),
       rowsUsed,
@@ -379,7 +548,8 @@ function generateSharedPointCloud(front: MaskRows, side: MaskRows): GeneratedClo
       projectionOnlyPointCount: 0,
       noProjectionOnlyPoints: true,
       backgroundNoisePolicy: 'no projection-only points; every rendered point must be paired from front and side masks',
-      colorPolicy: 'cosine_s1 directional color from frontColor/sideColor endpoint attributes',
+      colorPolicy: 'delta_lobe_s1 directional material from four fixed endpoint/down color attributes',
+      downSampling,
       rowMaterializationPolicy: 'quantile_max',
       rowOrderPolicy: 'sorted-midpoint-quantile',
       subRowJitterPolicy: 'deterministic-low-discrepancy-y-jitter',
@@ -398,32 +568,45 @@ scene.fog = new THREE.Fog(0x03040a, 6, 13);
 
 const frontMask = await drawReferenceImageMask(FRONT_SPEC);
 const sideMask = await drawReferenceImageMask(SIDE_SPEC);
-const cloud = generateSharedPointCloud(frontMask, sideMask);
+const frontDownMask = await drawReferenceImageMask(FRONT_DOWN_SPEC);
+const sideDownMask = await drawReferenceImageMask(SIDE_DOWN_SPEC);
+const cloud = generateSharedPointCloud(frontMask, sideMask, frontDownMask, sideDownMask);
 
 const geometry = new THREE.BufferGeometry();
 geometry.setAttribute('position', new THREE.BufferAttribute(cloud.positions, 3));
-geometry.setAttribute('frontColor', new THREE.BufferAttribute(cloud.frontColors, 3));
-geometry.setAttribute('sideColor', new THREE.BufferAttribute(cloud.sideColors, 3));
+geometry.setAttribute('frontBaseColor', new THREE.BufferAttribute(cloud.frontBaseColors, 3));
+geometry.setAttribute('frontDownColor', new THREE.BufferAttribute(cloud.frontDownColors, 3));
+geometry.setAttribute('sideBaseColor', new THREE.BufferAttribute(cloud.sideBaseColors, 3));
+geometry.setAttribute('sideDownColor', new THREE.BufferAttribute(cloud.sideDownColors, 3));
 geometry.computeBoundingSphere();
 
 const material = new THREE.ShaderMaterial({
   uniforms: {
     uSize: { value: POINT_SIZE * Math.min(devicePixelRatio, 2) },
     uAlpha: { value: POINT_ALPHA },
+    uFrontWeight: { value: 1 },
     uSideWeight: { value: 0 },
+    uFrontDownWeight: { value: 0 },
+    uSideDownWeight: { value: 0 },
   },
   vertexShader: `
     uniform float uSize;
-    attribute vec3 frontColor;
-    attribute vec3 sideColor;
-    varying vec3 vFrontColor;
-    varying vec3 vSideColor;
+    attribute vec3 frontBaseColor;
+    attribute vec3 frontDownColor;
+    attribute vec3 sideBaseColor;
+    attribute vec3 sideDownColor;
+    varying vec3 vFrontBaseColor;
+    varying vec3 vFrontDownColor;
+    varying vec3 vSideBaseColor;
+    varying vec3 vSideDownColor;
     float hash13(vec3 p) {
       return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453123);
     }
     void main() {
-      vFrontColor = frontColor;
-      vSideColor = sideColor;
+      vFrontBaseColor = frontBaseColor;
+      vFrontDownColor = frontDownColor;
+      vSideBaseColor = sideBaseColor;
+      vSideDownColor = sideDownColor;
       vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
       float sizeJitter = mix(1.0 - 0.10, 1.0 + 0.10, hash13(position));
       gl_PointSize = uSize * sizeJitter;
@@ -432,18 +615,22 @@ const material = new THREE.ShaderMaterial({
   `,
   fragmentShader: `
     uniform float uAlpha;
+    uniform float uFrontWeight;
     uniform float uSideWeight;
-    varying vec3 vFrontColor;
-    varying vec3 vSideColor;
-    float hash13(vec3 p) {
-      return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453123);
-    }
+    uniform float uFrontDownWeight;
+    uniform float uSideDownWeight;
+    varying vec3 vFrontBaseColor;
+    varying vec3 vFrontDownColor;
+    varying vec3 vSideBaseColor;
+    varying vec3 vSideDownColor;
     void main() {
       float d = length(gl_PointCoord - vec2(0.5));
       if (d > 0.5) discard;
       float alpha = smoothstep(0.5, 0.06, d) * uAlpha;
       float core = smoothstep(0.18, 0.0, d);
-      vec3 directionalColor = mix(vFrontColor, vSideColor, clamp(uSideWeight, 0.0, 1.0));
+      vec3 frontLocal = mix(vFrontBaseColor, vFrontDownColor, clamp(uFrontDownWeight, 0.0, 1.0));
+      vec3 sideLocal = mix(vSideBaseColor, vSideDownColor, clamp(uSideDownWeight, 0.0, 1.0));
+      vec3 directionalColor = (frontLocal * uFrontWeight) + (sideLocal * uSideWeight);
       vec3 glowColor = mix(directionalColor * 1.12, vec3(1.0), core * 0.22);
       gl_FragColor = vec4(glowColor, alpha);
     }
@@ -485,31 +672,82 @@ function deepFreeze<T extends Record<string, unknown>>(value: T): Readonly<T> {
   return Object.freeze(value);
 }
 
+function hashPositions(positions: Float32Array) {
+  let hash = 2166136261;
+  for (let i = 0; i < positions.length; i += 1) {
+    const quantized = Math.round((positions[i] + 8) * 10000);
+    hash ^= quantized & 0xff;
+    hash = Math.imul(hash, 16777619);
+    hash ^= (quantized >>> 8) & 0xff;
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function gaussianLobe(angle: number, center: number, sigma: number) {
+  const d = (angle - center) / sigma;
+  return Math.exp(-0.5 * d * d);
+}
+
+function normalizedDownLobe(angle: number, baseCenter: number, downCenter: number) {
+  const base = gaussianLobe(angle, baseCenter, SIGMA_DEGREES);
+  const down = gaussianLobe(angle, downCenter, SIGMA_DEGREES);
+  return down / Math.max(1e-6, base + down);
+}
+
+function canonicalLobeWeights() {
+  return Object.freeze({
+    front0: normalizedDownLobe(0, 0, MICRO_DELTA_DEGREES),
+    frontDown: normalizedDownLobe(MICRO_DELTA_DEGREES, 0, MICRO_DELTA_DEGREES),
+    side90: normalizedDownLobe(90, 90, 90 + MICRO_DELTA_DEGREES),
+    sideDown: normalizedDownLobe(90 + MICRO_DELTA_DEGREES, 90, 90 + MICRO_DELTA_DEGREES),
+  });
+}
+
+function cosineS1SideWeightFromPosition(position: THREE.Vector3) {
+  const side = Math.abs(position.x);
+  const front = Math.abs(position.z);
+  const denom = Math.max(1e-6, side + front);
+  return side / denom;
+}
+
 function buildLenticularQa(): LenticularQa {
   const scenePointsCount = countScenePoints(scene);
   const pointCloudUsesSharedGeometry = pointCloud.geometry === geometry;
   const attributeNames = Object.keys(geometry.attributes).sort();
   const positionAttribute = geometry.getAttribute('position');
-  const frontColorAttribute = geometry.getAttribute('frontColor');
-  const sideColorAttribute = geometry.getAttribute('sideColor');
+  const frontBaseColorAttribute = geometry.getAttribute('frontBaseColor');
+  const frontDownColorAttribute = geometry.getAttribute('frontDownColor');
+  const sideBaseColorAttribute = geometry.getAttribute('sideBaseColor');
+  const sideDownColorAttribute = geometry.getAttribute('sideDownColor');
   const positionCount = positionAttribute?.count ?? 0;
-  const frontColorCount = frontColorAttribute?.count ?? 0;
-  const sideColorCount = sideColorAttribute?.count ?? 0;
+  const frontBaseColorCount = frontBaseColorAttribute?.count ?? 0;
+  const frontDownColorCount = frontDownColorAttribute?.count ?? 0;
+  const sideBaseColorCount = sideBaseColorAttribute?.count ?? 0;
+  const sideDownColorCount = sideDownColorAttribute?.count ?? 0;
   const positionItemSize = positionAttribute?.itemSize ?? 0;
-  const frontColorItemSize = frontColorAttribute?.itemSize ?? 0;
-  const sideColorItemSize = sideColorAttribute?.itemSize ?? 0;
+  const frontBaseColorItemSize = frontBaseColorAttribute?.itemSize ?? 0;
+  const frontDownColorItemSize = frontDownColorAttribute?.itemSize ?? 0;
+  const sideBaseColorItemSize = sideBaseColorAttribute?.itemSize ?? 0;
+  const sideDownColorItemSize = sideDownColorAttribute?.itemSize ?? 0;
   const pointCloudInvariantHolds = scenePointsCount === 1
     && pointCloudUsesSharedGeometry
-    && attributeNames.length === 3
+    && attributeNames.length === 5
     && attributeNames.includes('position')
-    && attributeNames.includes('frontColor')
-    && attributeNames.includes('sideColor')
+    && attributeNames.includes('frontBaseColor')
+    && attributeNames.includes('frontDownColor')
+    && attributeNames.includes('sideBaseColor')
+    && attributeNames.includes('sideDownColor')
     && positionCount === cloud.stats.points
-    && frontColorCount === cloud.stats.points
-    && sideColorCount === cloud.stats.points
+    && frontBaseColorCount === cloud.stats.points
+    && frontDownColorCount === cloud.stats.points
+    && sideBaseColorCount === cloud.stats.points
+    && sideDownColorCount === cloud.stats.points
     && positionItemSize === 3
-    && frontColorItemSize === 3
-    && sideColorItemSize === 3;
+    && frontBaseColorItemSize === 3
+    && frontDownColorItemSize === 3
+    && sideBaseColorItemSize === 3
+    && sideDownColorItemSize === 3;
 
   return deepFreeze({
     seed: RNG_SEED,
@@ -542,18 +780,42 @@ function buildLenticularQa(): LenticularQa {
       names: Object.freeze(attributeNames),
       positionCount,
       positionItemSize,
-      frontColorCount,
-      frontColorItemSize,
-      sideColorCount,
-      sideColorItemSize,
+      frontBaseColorCount,
+      frontBaseColorItemSize,
+      frontDownColorCount,
+      frontDownColorItemSize,
+      sideBaseColorCount,
+      sideBaseColorItemSize,
+      sideDownColorCount,
+      sideDownColorItemSize,
     }),
     visualStyle: Object.freeze({
-      colorSource: 'frontColor/sideColor endpoint attributes',
-      colorPolicy: 'cosine_s1-directional-color',
+      colorSource: 'frontBaseColor/frontDownColor/sideBaseColor/sideDownColor fixed material attributes',
+      colorPolicy: 'delta_lobe_s1-directional-material',
       shaderGlowOnly: true,
       viewDependentOpacityGate: false,
       depthTestReadingGate: false,
+      textureSwap: false,
+      geometrySwapCount: 0,
     }),
+    algorithm: 'delta_lobe_s1_directional_material',
+    materialPolicy: 'fixed-position four-lobe directional color attributes',
+    positionHash: hashPositions(cloud.positions),
+    positionHashStableAcrossViews: true,
+    referenceImages: Object.freeze({
+      frontBase: FRONT_SPEC.imageUrl ?? FRONT_SPEC.label,
+      frontDown: FRONT_DOWN_SPEC.imageUrl ?? FRONT_DOWN_SPEC.label,
+      sideBase: SIDE_SPEC.imageUrl ?? SIDE_SPEC.label,
+      sideDown: SIDE_DOWN_SPEC.imageUrl ?? SIDE_DOWN_SPEC.label,
+    }),
+    lobe: Object.freeze({
+      microDeltaDegrees: MICRO_DELTA_DEGREES,
+      sigmaDegrees: SIGMA_DEGREES,
+      centersDegrees: Object.freeze({ frontBase: 0, frontDown: MICRO_DELTA_DEGREES, sideBase: 90, sideDown: 90 + MICRO_DELTA_DEGREES }),
+      weightsAtCanonicalSamples: canonicalLobeWeights(),
+      maxWrongAxisLeakageNearEndpoint: Math.max(cosineS1SideWeightFromPosition(new THREE.Vector3(Math.sin(THREE.MathUtils.degToRad(MICRO_DELTA_DEGREES)) * 6, 0, Math.cos(THREE.MathUtils.degToRad(MICRO_DELTA_DEGREES)) * 6)), 1 - cosineS1SideWeightFromPosition(new THREE.Vector3(Math.cos(THREE.MathUtils.degToRad(MICRO_DELTA_DEGREES)) * 6, 0, Math.sin(THREE.MathUtils.degToRad(MICRO_DELTA_DEGREES)) * 6))),
+    }),
+    downSampling: cloud.stats.downSampling,
     pointCloudInvariantHolds,
   });
 }
@@ -575,7 +837,9 @@ controls.target.set(0, 0, 0);
 
 const viewButtons: Record<ViewMode, HTMLButtonElement> = {
   front: document.querySelector('#frontBtn') as HTMLButtonElement,
+  frontDown: document.querySelector('#frontDownBtn') as HTMLButtonElement,
   right: document.querySelector('#rightBtn') as HTMLButtonElement,
+  rightDown: document.querySelector('#rightDownBtn') as HTMLButtonElement,
   back: document.querySelector('#backBtn') as HTMLButtonElement,
   left: document.querySelector('#leftBtn') as HTMLButtonElement,
   reveal: document.querySelector('#revealBtn') as HTMLButtonElement,
@@ -593,30 +857,41 @@ let viewMode: ViewMode = 'front';
 let playing = false;
 let start = 0;
 const recordingCamera = {
+  front: new THREE.Vector3(0, 0, 6),
+  frontDown: new THREE.Vector3(Math.sin(THREE.MathUtils.degToRad(MICRO_DELTA_DEGREES)) * 6, 0, Math.cos(THREE.MathUtils.degToRad(MICRO_DELTA_DEGREES)) * 6),
   right: new THREE.Vector3(6, 0, 0),
-  back: new THREE.Vector3(0, 0, -6),
-  overheadReveal: new THREE.Vector3(5.45, 5.65, -5.45),
+  rightDown: new THREE.Vector3(Math.cos(THREE.MathUtils.degToRad(MICRO_DELTA_DEGREES)) * 6, 0, -Math.sin(THREE.MathUtils.degToRad(MICRO_DELTA_DEGREES)) * 6),
+  overheadReveal: new THREE.Vector3(5.45, 5.65, 5.45),
 };
 
 const viewDefs: Record<ViewMode, { pos: THREE.Vector3; label: string; detail: string; badge: string; grid: boolean }> = {
-  front: { pos: new THREE.Vector3(0, 0, 6), label: 'FRONT +Z', detail: `same points project (x,y) to ${FRONT_SPEC.label.toLowerCase()} reference image`, badge: FRONT_SPEC.label, grid: false },
-  right: { pos: new THREE.Vector3(6, 0, 0), label: 'RIGHT +X', detail: `same points project (z,y) to ${SIDE_SPEC.label.toLowerCase()} reference image`, badge: SIDE_SPEC.label, grid: false },
+  front: { pos: new THREE.Vector3(0, 0, 6), label: 'FRONT +Z', detail: `base lobe: same points project (x,y) to ${FRONT_SPEC.label.toLowerCase()} reference image`, badge: FRONT_SPEC.label, grid: false },
+  frontDown: { pos: new THREE.Vector3(Math.sin(THREE.MathUtils.degToRad(MICRO_DELTA_DEGREES)) * 6, 0, Math.cos(THREE.MathUtils.degToRad(MICRO_DELTA_DEGREES)) * 6), label: 'FRONT +Z MICRO +2°', detail: `micro-angle material lobe: same fixed points switch color basis toward ${FRONT_DOWN_SPEC.label.toLowerCase()}`, badge: FRONT_DOWN_SPEC.label, grid: false },
+  right: { pos: new THREE.Vector3(6, 0, 0), label: 'RIGHT +X', detail: `base lobe: same points project (z,y) to ${SIDE_SPEC.label.toLowerCase()} reference image`, badge: SIDE_SPEC.label, grid: false },
+  rightDown: { pos: new THREE.Vector3(Math.cos(THREE.MathUtils.degToRad(MICRO_DELTA_DEGREES)) * 6, 0, -Math.sin(THREE.MathUtils.degToRad(MICRO_DELTA_DEGREES)) * 6), label: 'RIGHT +X MICRO +2°', detail: `micro-angle material lobe: same fixed points switch color basis toward ${SIDE_DOWN_SPEC.label.toLowerCase()}`, badge: SIDE_DOWN_SPEC.label, grid: false },
   back: { pos: new THREE.Vector3(0, 0, -6), label: 'BACK −Z', detail: `same points, mirrored ${FRONT_SPEC.label.toLowerCase()} projection`, badge: `mirror: ${FRONT_SPEC.label}`, grid: false },
   left: { pos: new THREE.Vector3(-6, 0, 0), label: 'LEFT −X', detail: `same points, mirrored ${SIDE_SPEC.label.toLowerCase()} projection`, badge: `mirror: ${SIDE_SPEC.label}`, grid: false },
   reveal: { pos: new THREE.Vector3(4.6, 2.1, 5.1), label: '3D REVEAL', detail: 'the physical cloud is neither flat image by itself', badge: 'single 3D point cloud', grid: true },
-  orbit: { pos: new THREE.Vector3(4.6, 2.1, 5.1), label: 'ORBIT', detail: 'drag to inspect the one shared point set', badge: 'free orbit', grid: true },
+  orbit: { pos: new THREE.Vector3(4.6, 2.1, 5.1), label: 'ORBIT', detail: 'drag to inspect the one shared point set and its fixed-position directional material lobes', badge: 'free orbit', grid: true },
 };
 
 
+function signedAzimuthDegreesFromCamera() {
+  return THREE.MathUtils.radToDeg(Math.atan2(camera.position.x, camera.position.z));
+}
+
 function cosineS1SideWeightFromCamera() {
-  const side = Math.abs(camera.position.x);
-  const front = Math.abs(camera.position.z);
-  const denom = Math.max(1e-6, side + front);
-  return side / denom;
+  return cosineS1SideWeightFromPosition(camera.position);
 }
 
 function updateDirectionalColorWeight() {
-  material.uniforms.uSideWeight.value = cosineS1SideWeightFromCamera();
+  const sideWeight = cosineS1SideWeightFromCamera();
+  const frontWeight = 1 - sideWeight;
+  const azimuth = signedAzimuthDegreesFromCamera();
+  material.uniforms.uFrontWeight.value = frontWeight;
+  material.uniforms.uSideWeight.value = sideWeight;
+  material.uniforms.uFrontDownWeight.value = normalizedDownLobe(azimuth, 0, MICRO_DELTA_DEGREES);
+  material.uniforms.uSideDownWeight.value = normalizedDownLobe(azimuth, 90, 90 + MICRO_DELTA_DEGREES);
 }
 
 function setCameraTo(position: THREE.Vector3) {
@@ -653,55 +928,76 @@ function updateRecordingCamera(t: number) {
   const target = new THREE.Vector3(0, 0, 0);
   let zoom = 1;
 
-  if (t < 0.18) {
-    const local = smoothStep01(t / 0.18);
-    position.copy(recordingCamera.right);
-    zoom = THREE.MathUtils.lerp(1.0, 1.12, local);
+  if (t < 0.13) {
+    const local = smoothStep01(t / 0.13);
+    position.copy(recordingCamera.front);
+    zoom = THREE.MathUtils.lerp(1.0, 1.10, local);
     axesGroup.visible = false;
-    viewBadge.textContent = SIDE_SPEC.label;
-    phaseDetail.textContent = `clean +X hold with a tiny push-in so ${SIDE_SPEC.label} reads before motion`;
-  } else if (t < 0.25) {
-    const local = smoothStep01((t - 0.18) / 0.07);
-    position.copy(recordingCamera.right);
-    zoom = THREE.MathUtils.lerp(1.12, 1.04, local);
-    axesGroup.visible = true;
-    viewBadge.textContent = 'camera leaves +X';
-    phaseDetail.textContent = 'no-cut breathing beat before the quarter-arc, keeping the Nubzuki pose locked';
-  } else if (t < 0.50) {
-    const local = easeInOutCubic((t - 0.25) / 0.25);
-    const theta = local * Math.PI * 0.5;
+    viewBadge.textContent = `${FRONT_SPEC.label}: white heart/KAIST`;
+    phaseDetail.textContent = `clean +Z hold: ${FRONT_SPEC.label.toLowerCase()} base state with white heart and white KAIST`;
+  } else if (t < 0.24) {
+    const local = smoothStep01((t - 0.13) / 0.11);
+    position.lerpVectors(recordingCamera.front, recordingCamera.frontDown, local);
+    zoom = THREE.MathUtils.lerp(1.10, 1.14, local);
+    axesGroup.visible = false;
+    viewBadge.textContent = `${FRONT_DOWN_SPEC.label}: red heart/KAIST`;
+    phaseDetail.textContent = 'front micro-angle lobe: same +Z point cloud switches heart and KAIST material from white to red';
+  } else if (t < 0.32) {
+    const local = smoothStep01((t - 0.24) / 0.08);
+    position.copy(recordingCamera.frontDown);
+    zoom = THREE.MathUtils.lerp(1.14, 1.06, local);
+    axesGroup.visible = false;
+    viewBadge.textContent = `${FRONT_DOWN_SPEC.label}: red hold`;
+    phaseDetail.textContent = 'short Nubzuki red-state hold; no geometry or opacity change';
+  } else if (t < 0.53) {
+    const local = easeInOutCubic((t - 0.32) / 0.21);
+    const theta = THREE.MathUtils.lerp(THREE.MathUtils.degToRad(MICRO_DELTA_DEGREES), Math.PI * 0.5, local);
     const radius = 6;
     const lift = Math.sin(local * Math.PI) * 0.86;
-    position.set(Math.cos(theta) * radius, lift, -Math.sin(theta) * radius);
-    zoom = THREE.MathUtils.lerp(1.04, 0.98, local);
+    position.set(Math.sin(theta) * radius, lift, Math.cos(theta) * radius);
+    zoom = THREE.MathUtils.lerp(1.06, 0.98, local);
     axesGroup.visible = true;
-    viewBadge.textContent = `${SIDE_SPEC.label} → ${FRONT_SPEC.label}`;
-    phaseDetail.textContent = 'same smooth quarter-arc from +X to −Z, with x/z depth parallax exposed';
-  } else if (t < 0.64) {
-    const local = smoothStep01((t - 0.50) / 0.14);
-    position.copy(recordingCamera.back);
-    zoom = THREE.MathUtils.lerp(0.98, 1.0, local);
+    viewBadge.textContent = `${FRONT_SPEC.label} → ${SIDE_SPEC.label}`;
+    phaseDetail.textContent = 'smooth +Z to +X quarter-arc, keeping the viewer path on the positive-Z side';
+  } else if (t < 0.62) {
+    const local = smoothStep01((t - 0.53) / 0.09);
+    position.copy(recordingCamera.right);
+    zoom = THREE.MathUtils.lerp(0.98, 1.08, local);
     axesGroup.visible = false;
-    viewBadge.textContent = `mirrored ${FRONT_SPEC.label}`;
-    phaseDetail.textContent = 'second clean hold at −Z before the escape upward';
-  } else if (t < 0.82) {
-    const local = easeInOutCubic((t - 0.64) / 0.18);
-    const craneReveal = new THREE.Vector3(0, 3.15, -7.15);
-    position.lerpVectors(recordingCamera.back, craneReveal, local);
-    zoom = THREE.MathUtils.lerp(1.0, 0.74, local);
+    viewBadge.textContent = `${SIDE_SPEC.label}: normal`;
+    phaseDetail.textContent = `clean +X hold: ${SIDE_SPEC.label.toLowerCase()} base state before antenna/cheek red accents`;
+  } else if (t < 0.72) {
+    const local = smoothStep01((t - 0.62) / 0.10);
+    position.lerpVectors(recordingCamera.right, recordingCamera.rightDown, local);
+    zoom = THREE.MathUtils.lerp(1.08, 1.12, local);
+    axesGroup.visible = false;
+    viewBadge.textContent = `${SIDE_DOWN_SPEC.label}: red accents`;
+    phaseDetail.textContent = 'right micro-angle lobe: same +X point cloud switches Kumdori antenna tip and cheeks toward red accents';
+  } else if (t < 0.80) {
+    const local = smoothStep01((t - 0.72) / 0.08);
+    position.copy(recordingCamera.rightDown);
+    zoom = THREE.MathUtils.lerp(1.12, 1.02, local);
+    axesGroup.visible = false;
+    viewBadge.textContent = `${SIDE_DOWN_SPEC.label}: red hold`;
+    phaseDetail.textContent = 'short Kumdori red-accent hold before the final single-cloud reveal';
+  } else if (t < 0.90) {
+    const local = easeInOutCubic((t - 0.80) / 0.10);
+    const craneReveal = new THREE.Vector3(2.25, 3.1, 6.65);
+    position.lerpVectors(recordingCamera.rightDown, craneReveal, local);
+    zoom = THREE.MathUtils.lerp(1.02, 0.74, local);
     target.y = THREE.MathUtils.lerp(0, 0.06, local);
     axesGroup.visible = true;
-    viewBadge.textContent = 'crane-out reveal';
-    phaseDetail.textContent = 'pull straight upward and outward first, so the flat −Z reading breaks into depth without a camera jump';
+    viewBadge.textContent = '+Z crane-out reveal';
+    phaseDetail.textContent = 'pull upward and outward from the positive-Z side for the final single-cloud depth reveal';
   } else {
-    const local = easeInOutCubic((t - 0.82) / 0.18);
-    const craneReveal = new THREE.Vector3(0, 3.15, -7.15);
+    const local = easeInOutCubic((t - 0.90) / 0.10);
+    const craneReveal = new THREE.Vector3(2.25, 3.1, 6.65);
     position.lerpVectors(craneReveal, recordingCamera.overheadReveal, local);
     zoom = THREE.MathUtils.lerp(0.74, 0.54, local);
     target.y = THREE.MathUtils.lerp(0.06, 0, local);
     axesGroup.visible = true;
-    viewBadge.textContent = '45° overhead reveal';
-    phaseDetail.textContent = 'slow diagonal drift after the crane-out gives the widest outside view of the single 3D point cloud';
+    viewBadge.textContent = '+Z 45° overhead reveal';
+    phaseDetail.textContent = 'final diagonal drift stays in positive Z while exposing the single 3D point cloud structure';
   }
 
   setRecordingPose(position, zoom, target);
@@ -761,7 +1057,7 @@ requestAnimationFrame(animate);
 
 const qa = window.__LENTICULAR_QA__;
 errorMetric.textContent = `same points: ${cloud.stats.points.toLocaleString()} / matched rows: ${cloud.stats.rowsUsed}/${cloud.stats.rowCount} / active-row overlap: ${(cloud.stats.rowBalance.matchedRowRatio * 100).toFixed(1)}% / row density min-med-max: ${cloud.stats.rowBalance.generatedPointsPerMatchedRow.min}-${cloud.stats.rowBalance.generatedPointsPerMatchedRow.median}-${cloud.stats.rowBalance.generatedPointsPerMatchedRow.max} / coverage F/S: ${(cloud.stats.frontCoverage * 100).toFixed(1)}%/${(cloud.stats.sideCoverage * 100).toFixed(1)}%`;
-invariantQaMetric.textContent = `Physical cloud: ${qa.scenePointsCount} THREE.Points object using 1 shared BufferGeometry (${qa.geometryAttributes.names.join(' + ')} attributes, count=${qa.pointCount.toLocaleString()}). Row QA: active rows F/S/M=${qa.rowBalance.activeRows.front}/${qa.rowBalance.activeRows.side}/${qa.rowBalance.activeRows.matched}; drops F-only/S-only/empty=${qa.rowBalance.rowMismatches.frontOnly}/${qa.rowBalance.rowMismatches.sideOnly}/${qa.rowBalance.rowMismatches.emptyBoth}; sampled active pixels F/S=${qa.rowBalance.activePixels.front.toLocaleString()}/${qa.rowBalance.activePixels.side.toLocaleString()}. Shared-space QA: projectionCount=${qa.projectionCount}, projectionOnlyPointCount=${qa.projectionOnlyPointCount}, noProjectionOnlyPoints=${qa.noProjectionOnlyPoints}; policy=${qa.backgroundNoisePolicy}; rowPolicy=${cloud.stats.rowMaterializationPolicy}/${cloud.stats.rowOrderPolicy}; yJitter=${cloud.stats.subRowJitterPolicy}@${SUB_ROW_JITTER_SCALE}; sizeJitter=±${POINT_SIZE_JITTER}; pointScaleY=${POINT_SCALE_Y}; pointSize=${POINT_SIZE}; alpha=${POINT_ALPHA}; colorPolicy=${qa.visualStyle.colorPolicy}. Style QA: ${qa.visualStyle.colorSource}, shaderGlowOnly=${qa.visualStyle.shaderGlowOnly}, viewOpacityGate=${qa.visualStyle.viewDependentOpacityGate}, depthGate=${qa.visualStyle.depthTestReadingGate}. Helper axes/grid may have their own line geometries, but they are not point sets. Point-cloud invariant: ${qa.pointCloudInvariantHolds ? 'PASS' : 'FAIL'}.`;
+invariantQaMetric.textContent = `Physical cloud: ${qa.scenePointsCount} THREE.Points object using 1 shared BufferGeometry (${qa.geometryAttributes.names.join(' + ')} attributes, count=${qa.pointCount.toLocaleString()}). Row QA: active rows F/S/M=${qa.rowBalance.activeRows.front}/${qa.rowBalance.activeRows.side}/${qa.rowBalance.activeRows.matched}; drops F-only/S-only/empty=${qa.rowBalance.rowMismatches.frontOnly}/${qa.rowBalance.rowMismatches.sideOnly}/${qa.rowBalance.rowMismatches.emptyBoth}; sampled active pixels F/S=${qa.rowBalance.activePixels.front.toLocaleString()}/${qa.rowBalance.activePixels.side.toLocaleString()}. Shared-space QA: projectionCount=${qa.projectionCount}, projectionOnlyPointCount=${qa.projectionOnlyPointCount}, noProjectionOnlyPoints=${qa.noProjectionOnlyPoints}; policy=${qa.backgroundNoisePolicy}; rowPolicy=${cloud.stats.rowMaterializationPolicy}/${cloud.stats.rowOrderPolicy}; yJitter=${cloud.stats.subRowJitterPolicy}@${SUB_ROW_JITTER_SCALE}; sizeJitter=±${POINT_SIZE_JITTER}; pointScaleY=${POINT_SCALE_Y}; pointSize=${POINT_SIZE}; alpha=${POINT_ALPHA}; algorithm=${qa.algorithm}; colorPolicy=${qa.visualStyle.colorPolicy}; lobe Δ=${qa.lobe.microDeltaDegrees}° σ=${qa.lobe.sigmaDegrees}°; down IoU F/S=${qa.downSampling.frontActiveIoU.toFixed(3)}/${qa.downSampling.sideActiveIoU.toFixed(3)}; down fallback F/S=${(qa.downSampling.frontFallbackRatio * 100).toFixed(1)}%/${(qa.downSampling.sideFallbackRatio * 100).toFixed(1)}%. Style QA: ${qa.visualStyle.colorSource}, shaderGlowOnly=${qa.visualStyle.shaderGlowOnly}, textureSwap=${qa.visualStyle.textureSwap}, viewOpacityGate=${qa.visualStyle.viewDependentOpacityGate}, depthGate=${qa.visualStyle.depthTestReadingGate}, geometrySwapCount=${qa.visualStyle.geometrySwapCount}. Helper axes/grid may have their own line geometries, but they are not point sets. Point-cloud invariant: ${qa.pointCloudInvariantHolds ? 'PASS' : 'FAIL'}.`;
 setView('front');
 
 (document.querySelector('#shotBtn') as HTMLButtonElement).onclick = () => {
@@ -793,7 +1089,7 @@ recordBtn.onclick = () => {
   recordBtn.disabled = true;
   recordBtn.classList.add('is-recording');
   recordBtn.textContent = 'Recording 10s…';
-  captureStatus.textContent = 'Recording 10s path: +X side hold → smooth quarter-arc to −Z mirrored front → no-cut crane-out and 45° overhead zoom reveal.';
+  captureStatus.textContent = 'Recording 10s path: +Z white→red heart/KAIST → +X normal→red antenna/cheeks → positive-Z overhead reveal.';
   recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
   recorder.onstop = () => {
     window.clearTimeout(stopTimer);

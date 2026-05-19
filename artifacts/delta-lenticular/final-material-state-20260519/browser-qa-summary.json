@@ -1,0 +1,34 @@
+{
+  "algorithm": "delta_lobe_s1_directional_material",
+  "pointCount": 21263,
+  "scenePointsCount": 1,
+  "pointCloudInvariantHolds": true,
+  "projectionOnlyPointCount": 0,
+  "noProjectionOnlyPoints": true,
+  "downSampling": {
+    "frontActiveIoU": 1.0,
+    "frontFallbackRatio": 0.0,
+    "sideActiveIoU": 0.9997568448183632,
+    "sideFallbackRatio": 0.0
+  },
+  "visualStyle": {
+    "textureSwap": false,
+    "viewDependentOpacityGate": false,
+    "geometrySwapCount": 0,
+    "depthTestReadingGate": false
+  },
+  "lobe": {
+    "microDeltaDegrees": 2,
+    "sigmaDegrees": 0.9,
+    "frontBase": 0,
+    "frontAlt": 2,
+    "sideBase": 90,
+    "sideAlt": 92
+  },
+  "evidence": [
+    "front-base-white.png",
+    "front-alt-red.png",
+    "right-base-normal.png",
+    "right-alt-red-accent.png"
+  ]
+}
