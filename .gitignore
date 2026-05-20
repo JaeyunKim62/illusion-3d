@@ -2,3 +2,24 @@ node_modules/
 dist/
 .DS_Store
 *.log
+
+# Hermes/local autonomous-run scratch artifacts not part of curated source/evidence
+.hermes/prompts/
+.hermes/runs/
+.hermes/plans/alg3-asset-search-brief-20260519.md
+.hermes/plans/alg3-designed-3view-brief-20260519.md
+.hermes/plans/alg3-lenticular-motion-brief-20260519.md
+.hermes/plans/delta-lenticular-final-algorithm-plan-20260519.md
+.hermes/plans/three-algorithm-autonomous-run-20260519.md
+.hermes/plans/three-algorithm-autonomous-run-log-20260519.md
+.hermes/plans/three-algorithm-deep-analysis-20260519.md
+artifacts/delta-lenticular/__pycache__/
+artifacts/delta-lenticular/analyze_reference_deltas.py
+artifacts/delta-lenticular/reference-delta-stats-20260519.*
+artifacts/delta-lenticular/browser-evidence-20260519/
+artifacts/delta-lenticular/browser-qa-20260519.json
+artifacts/delta-lenticular/kumdori-red-accent-20260519/
+artifacts/delta-lenticular/red-heart-kaist-20260519/
+artifacts/delta-lenticular/red-kaist-20260519/
+({id
+k.toLowerCase().includes('lenticular')
