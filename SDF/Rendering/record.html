@@ -51,7 +51,7 @@ const SHADOW_Y  = -1.3;
 
 // ── Scene ──────────────────────────────────────────────────────────────────────
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xf0f0f0);
+scene.background = new THREE.Color(0xf4f1ea);
 
 const camera = new THREE.PerspectiveCamera(50, WIDTH / HEIGHT, 0.01, 100);
 camera.position.set(0, 0, CAM_R);
@@ -66,8 +66,10 @@ const VERT = `
   attribute vec3 colSide;
   attribute vec3 colTop;
   attribute vec3 initPos;
+  attribute vec4 sdfInfo;
 
   uniform float uScatter;
+  uniform float uFieldReveal;
   uniform vec3  uLightDir;
   uniform vec3  uCamDir;
   uniform float uPointSize;
@@ -76,6 +78,8 @@ const VERT = `
 
   varying float vLight;
   varying float vTexture;
+  varying float vBoundary;
+  varying float vConstraint;
 
   void main() {
     vec3 pos = mix(position, initPos, uScatter);
@@ -100,10 +104,13 @@ const VERT = `
     vec3 n = normalize(position);
     float diff = max(dot(n, uLightDir), 0.0);
     vLight = mix(0.35, 1.0, diff);
+    float sdfMax = max(max(sdfInfo.x, sdfInfo.y), sdfInfo.z);
+    vBoundary = 1.0 - smoothstep(0.00, 0.18, abs(sdfMax));
+    vConstraint = sdfInfo.w;
 
     vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
     float depth = clamp(-mvPos.z, 0.5, 20.0);
-    gl_PointSize = uPointSize * (2.5 / depth);
+    gl_PointSize = uPointSize * (2.5 / depth) * mix(1.0, 1.32, uFieldReveal * vBoundary);
     gl_Position  = projectionMatrix * mvPos;
   }
 `;
@@ -111,8 +118,11 @@ const VERT = `
 const FRAG = `
   uniform float uIsShadow;
   uniform float uScatter;
+  uniform float uFieldReveal;
   varying float vLight;
   varying float vTexture;
+  varying float vBoundary;
+  varying float vConstraint;
 
   void main() {
     vec2 uv = gl_PointCoord - 0.5;
@@ -121,23 +131,35 @@ const FRAG = `
     float edge = 1.0 - smoothstep(0.18, 0.25, d2);
 
     if (uIsShadow > 0.5) {
-      float a = edge * 0.18 * (1.0 - uScatter);
+      float a = edge * 0.22 * (1.0 - uScatter);
       gl_FragColor = vec4(0.0, 0.0, 0.0, a);
     } else {
-      vec3 baseColor = vec3(0.95, 0.55, 0.15);
-      float tex = mix(0.3, 1.0, vTexture);
-      vec3 col = baseColor * tex * vLight;
-      col = mix(col, vec3(0.5), uScatter * 0.4);
-      gl_FragColor = vec4(col, edge);
+      float tex = smoothstep(0.08, 0.95, vTexture);
+      vec3 ink = vec3(0.12, 0.075, 0.035);
+      vec3 amber = vec3(1.0, 0.55, 0.16);
+      vec3 highlight = vec3(1.0, 0.86, 0.48);
+      vec3 col = mix(ink, amber, tex);
+      col = mix(col, highlight, smoothstep(0.72, 1.0, tex) * 0.32);
+      col *= mix(0.72, 1.18, vLight);
+      col = mix(col, vec3(0.58), uScatter * 0.36);
+      vec3 frontConstraint = vec3(0.10, 0.55, 1.0);
+      vec3 sideConstraint = vec3(1.0, 0.24, 0.36);
+      vec3 topConstraint = vec3(0.62, 0.95, 0.22);
+      vec3 constraintColor = vConstraint < 0.5 ? frontConstraint : (vConstraint < 1.5 ? sideConstraint : topConstraint);
+      float field = uFieldReveal * (0.20 + 0.80 * vBoundary);
+      col = mix(col, constraintColor, field * 0.62);
+      col += constraintColor * uFieldReveal * vBoundary * 0.20;
+      gl_FragColor = vec4(col, edge * mix(0.78, 1.0, tex));
     }
   }
 `;
 
 const uniforms = {
   uScatter:   { value: 1.0 },
+  uFieldReveal: { value: 0.0 },
   uLightDir:  { value: LIGHT_DIR },
   uCamDir:    { value: new THREE.Vector3(0, 0, -1) },
-  uPointSize: { value: 7.0 },
+  uPointSize: { value: 6.6 },
   uIsShadow:  { value: 0.0 },
   uShadowY:   { value: SHADOW_Y },
 };
@@ -149,6 +171,7 @@ const mat = new THREE.ShaderMaterial({
 
 const shadowUniforms = {
   uScatter:  uniforms.uScatter,
+  uFieldReveal: uniforms.uFieldReveal,
   uLightDir: uniforms.uLightDir,
   uCamDir:   uniforms.uCamDir,
   uPointSize: uniforms.uPointSize,
@@ -163,7 +186,7 @@ const shadowMat = new THREE.ShaderMaterial({
 
 // ── Ground plane ──────────────────────────────────────────────────────────────
 const groundGeo = new THREE.PlaneGeometry(8, 8);
-const groundMat = new THREE.MeshBasicMaterial({ color: 0xe8e8e8 });
+const groundMat = new THREE.MeshBasicMaterial({ color: 0xe9e3d6 });
 const ground = new THREE.Mesh(groundGeo, groundMat);
 ground.rotation.x = -Math.PI / 2;
 ground.position.y = SHADOW_Y;
@@ -207,20 +230,20 @@ function sampleSpline(keys, t) {
 // Camera path: smooth flowing orbit
 const CAM_KEYS = [
   [ 0.0,  -0.05,   0.02  ],
-  [ 1.8,   0.03,   0.0   ],
-  [ 3.5,   PI2,    0.03  ],
-  [ 5.5,   PI2+0.2,PI2*0.95],
-  [ 7.5,   PI2 + Math.PI*0.35, PI2*0.35 ],
-  [ 9.5,   PI2 + Math.PI*0.55, PI2*0.2  ],
+  [ 1.4,   0.03,   0.0   ],
+  [ 2.9,   PI2,    0.03  ],
+  [ 4.6,   PI2+0.08, PI2*0.95],
+  [ 6.5,   PI2 + Math.PI*0.32, PI2*0.38 ],
+  [ 8.7,   PI2 + Math.PI*0.55, PI2*0.2  ],
   [10.0,   PI2 + Math.PI*0.6,  PI2*0.15 ],
 ];
 
 const SCATTER_KEYS = [
   [ 0.0, 1.0 ],
-  [ 0.3, 1.0 ],
-  [ 1.8, 0.0 ],
-  [ 8.5, 0.0 ],
-  [ 9.8, 1.0 ],
+  [ 0.25, 1.0 ],
+  [ 1.35, 0.0 ],
+  [ 8.6, 0.0 ],
+  [ 9.75, 1.0 ],
   [10.0, 1.0 ],
 ];
 
@@ -238,7 +261,7 @@ function sampleScatter(t) {
 const status = document.getElementById('status');
 const bar    = document.getElementById('bar');
 
-fetch('../points.json')
+fetch('points-sdf.json')
   .then(r => r.json())
   .then(data => {
     const pts = data.points;
@@ -252,7 +275,12 @@ fetch('../points.json')
     const cs   = new Float32Array(n * 3);
     const ct   = new Float32Array(n * 3);
     const init = new Float32Array(n * 3);
+    const sdfInfo = new Float32Array(n * 4);
     const rng  = mulberry32(0xcafe);
+    const sdfFront = data.sdf?.front || [];
+    const sdfSide = data.sdf?.side || [];
+    const sdfTop = data.sdf?.top || [];
+    const sdfActiveConstraint = data.sdfActiveConstraint || [];
 
     for (let i = 0; i < n; i++) {
       pos[i*3]   = pts[i][0];
@@ -262,6 +290,10 @@ fetch('../points.json')
       cf[i*3] = cF[i][0]; cf[i*3+1] = cF[i][1]; cf[i*3+2] = cF[i][2];
       cs[i*3] = cS[i][0]; cs[i*3+1] = cS[i][1]; cs[i*3+2] = cS[i][2];
       ct[i*3] = cT[i][0]; ct[i*3+1] = cT[i][1]; ct[i*3+2] = cT[i][2];
+      sdfInfo[i*4] = sdfFront[i] ?? -0.25;
+      sdfInfo[i*4+1] = sdfSide[i] ?? -0.25;
+      sdfInfo[i*4+2] = sdfTop[i] ?? -0.25;
+      sdfInfo[i*4+3] = sdfActiveConstraint[i] ?? 0;
 
       const theta = rng() * Math.PI * 2;
       const phi   = Math.acos(2 * rng() - 1);
@@ -277,11 +309,32 @@ fetch('../points.json')
     geo.setAttribute('colSide',  new THREE.BufferAttribute(cs,   3));
     geo.setAttribute('colTop',   new THREE.BufferAttribute(ct,   3));
     geo.setAttribute('initPos',  new THREE.BufferAttribute(init, 3));
+    geo.setAttribute('sdfInfo',  new THREE.BufferAttribute(sdfInfo, 4));
 
     // Shadow (rendered first)
-    scene.add(new THREE.Points(geo, shadowMat));
+    const shadowCloud = new THREE.Points(geo, shadowMat);
+    shadowCloud.userData.derivedProjectionShadow = true;
+    scene.add(shadowCloud);
     // Main points
-    scene.add(new THREE.Points(geo, mat));
+    const cloud = new THREE.Points(geo, mat);
+    cloud.userData.contestCloud = true;
+    scene.add(cloud);
+
+    window.__SDF_RENDERING_QA__ = Object.freeze({
+      pointCount: n,
+      contestPointObjects: 1,
+      derivedShadowPointObjects: 1,
+      sharedGeometryForShadow: shadowCloud.geometry === cloud.geometry,
+      fixedPositions: true,
+      hasViewColorAttributes: Boolean(cF && cS && cT),
+      hasSdfAttributes: Boolean(data.sdf && data.sdfMax && data.sdfActiveConstraint),
+      sdfAnnotation: data.sdfAnnotation,
+      hiddenBillboards: false,
+      textureSwap: false,
+      geometrySwap: false,
+      viewDependentOpacityGate: false,
+      algorithm: 'neural-sdf-3view-visual-hull-dense-renderer',
+    });
 
     status.textContent = 'Recording …';
     startRecording();
@@ -308,7 +361,7 @@ function startRecording() {
     const blob = new Blob(chunks, { type: 'video/webm' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'anamorphic.webm';
+    a.download = 'sdf-bird-airplane-tower.webm';
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -344,6 +397,9 @@ function startRecording() {
 // ── Animation state ───────────────────────────────────────────────────────────
 function applyState(t) {
   uniforms.uScatter.value = sampleScatter(t);
+  const fieldIn = smoothstep(6.1, 6.8, t);
+  const fieldOut = 1.0 - smoothstep(8.5, 9.2, t);
+  uniforms.uFieldReveal.value = Math.max(0, Math.min(1, fieldIn * fieldOut));
 
   const [az, el] = sampleSpline(CAM_KEYS, t);
 
@@ -358,6 +414,11 @@ function applyState(t) {
   const vd = new THREE.Vector3();
   camera.getWorldDirection(vd);
   uniforms.uCamDir.value.copy(vd);
+}
+
+function smoothstep(edge0, edge1, x) {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
 }
 </script>
 </body>

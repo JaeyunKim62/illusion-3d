@@ -1,0 +1,13 @@
+name: illusion-sdf-cuda
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy>=1.21
+  - scipy>=1.9
+  - pillow>=9.0
+  - pytorch>=2.0
+  - pytorch-cuda=12.1
+  - pip
