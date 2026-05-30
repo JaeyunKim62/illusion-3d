@@ -49,6 +49,53 @@ def packed_intersection_count(a: np.ndarray, b: np.ndarray):
     return int(np.unpackbits(np.bitwise_and(a, b)).sum())
 
 
+def capacity_stats(capacity: np.ndarray, target: np.ndarray, n_samples: int, low_threshold: int):
+    target_caps = capacity[target].astype(np.float64)
+    target_count = int(target_caps.size)
+    if target_count == 0:
+        return {
+            "targetActive": 0,
+            "feasibleActive": 0,
+            "feasibleRecall": 0.0,
+            "sum": 0,
+            "mean": 0.0,
+            "median": 0.0,
+            "p10": 0.0,
+            "lowCapacityRatio": 1.0,
+            "expectedCoverage": 0.0,
+        }
+
+    feasible = target_caps > 0
+    feasible_caps = target_caps[feasible]
+    feasible_count = int(feasible.sum())
+    support_volume = float(target_caps.sum())
+    if support_volume > 0:
+        expected = 1.0 - np.exp(-float(n_samples) * target_caps / support_volume)
+        expected_coverage = float(expected.mean())
+    else:
+        expected_coverage = 0.0
+
+    if feasible_count:
+        mean = float(feasible_caps.mean())
+        median = float(np.median(feasible_caps))
+        p10 = float(np.percentile(feasible_caps, 10))
+    else:
+        mean = median = p10 = 0.0
+
+    low_capacity_ratio = float(((target_caps > 0) & (target_caps <= low_threshold)).sum() / target_count)
+    return {
+        "targetActive": target_count,
+        "feasibleActive": feasible_count,
+        "feasibleRecall": feasible_count / target_count,
+        "sum": int(support_volume),
+        "mean": mean,
+        "median": median,
+        "p10": p10,
+        "lowCapacityRatio": low_capacity_ratio,
+        "expectedCoverage": expected_coverage,
+    }
+
+
 def front_pair_compat(side: np.ndarray, top: np.ndarray):
     # For each front pixel (y,x), ask whether any z satisfies side[y,z] and top[z,x].
     out = np.zeros_like(top, dtype=bool)
@@ -77,6 +124,18 @@ def top_pair_compat(side: np.ndarray, front: np.ndarray):
         if ys.size:
             out[z] = front[ys].any(axis=0)
     return out
+
+
+def front_pair_capacity(side: np.ndarray, top: np.ndarray):
+    return side.astype(np.uint16) @ top.astype(np.uint16)
+
+
+def side_pair_capacity(front: np.ndarray, top: np.ndarray):
+    return front.astype(np.uint16) @ top.astype(np.uint16).T
+
+
+def top_pair_capacity(side: np.ndarray, front: np.ndarray):
+    return side.astype(np.uint16).T @ front.astype(np.uint16)
 
 
 def image_files(img_dir):
@@ -130,6 +189,8 @@ def main():
     p.add_argument("--exclude-label-prefix", action="append", default=[])
     p.add_argument("--require-label", action="append", default=[])
     p.add_argument("--exactly-one-group", action="append", default=[])
+    p.add_argument("--sample-budget", type=int, default=30000)
+    p.add_argument("--low-capacity-threshold", type=int, default=4)
     args = p.parse_args()
 
     img_dirs = args.img_dir or ["img"]
@@ -149,11 +210,20 @@ def main():
     front_compat = {}
     side_compat = {}
     top_compat = {}
+    front_capacity = {}
+    side_capacity = {}
+    top_capacity = {}
     for a in labels:
         for b in labels:
-            front_compat[(a, b)] = pack_mask(front_pair_compat(masks[a], masks[b]))
-            side_compat[(a, b)] = pack_mask(side_pair_compat(masks[a], masks[b]))
-            top_compat[(a, b)] = pack_mask(top_pair_compat(masks[a], masks[b]))
+            fc = front_pair_capacity(masks[a], masks[b])
+            sc = side_pair_capacity(masks[a], masks[b])
+            tc = top_pair_capacity(masks[a], masks[b])
+            front_capacity[(a, b)] = fc
+            side_capacity[(a, b)] = sc
+            top_capacity[(a, b)] = tc
+            front_compat[(a, b)] = pack_mask(fc > 0)
+            side_compat[(a, b)] = pack_mask(sc > 0)
+            top_compat[(a, b)] = pack_mask(tc > 0)
 
     triples = itertools.product(labels, repeat=3) if args.allow_repeat else itertools.permutations(labels, 3)
     results = []
@@ -184,11 +254,49 @@ def main():
             "side": side_f_count / max(1, side_count),
             "top": top_f_count / max(1, top_count),
         }
+        capacities = {
+            "front": capacity_stats(
+                front_capacity[(side_name, top_name)],
+                masks[front_name],
+                args.sample_budget,
+                args.low_capacity_threshold,
+            ),
+            "side": capacity_stats(
+                side_capacity[(front_name, top_name)],
+                masks[side_name],
+                args.sample_budget,
+                args.low_capacity_threshold,
+            ),
+            "top": capacity_stats(
+                top_capacity[(side_name, front_name)],
+                masks[top_name],
+                args.sample_budget,
+                args.low_capacity_threshold,
+            ),
+        }
+        expected_coverages = {
+            label: capacities[label]["expectedCoverage"]
+            for label in ("front", "side", "top")
+        }
+        min_expected_coverage = min(expected_coverages.values())
+        mean_expected_coverage = sum(expected_coverages.values()) / 3
+        low_capacity_mean = sum(
+            capacities[label]["lowCapacityRatio"]
+            for label in ("front", "side", "top")
+        ) / 3
+        capacity_p10_min = min(capacities[label]["p10"] for label in ("front", "side", "top"))
         min_recall = min(recalls.values())
         mean_recall = sum(recalls.values()) / 3
         active_sum = int(front_count + side_count + top_count)
         # Prefer compatible, readable masks but avoid nearly-full silhouettes.
-        score = min_recall * 4.0 + mean_recall * 1.5 + min(active_sum / (args.size * args.size * 0.8), 1.0)
+        existence_score = min_recall * 4.0 + mean_recall * 1.5 + min(active_sum / (args.size * args.size * 0.8), 1.0)
+        sampleability_score = (
+            min_expected_coverage * 5.0
+            + mean_expected_coverage * 2.0
+            + min_recall * 1.25
+            + min(capacity_p10_min / 12.0, 1.0) * 0.75
+            - low_capacity_mean * 1.5
+        )
         results.append({
             "front": front_name,
             "side": side_name,
@@ -202,7 +310,15 @@ def main():
             "recall": recalls,
             "minRecall": min_recall,
             "meanRecall": mean_recall,
-            "score": score,
+            "expectedCoverage": expected_coverages,
+            "minExpectedCoverage": min_expected_coverage,
+            "meanExpectedCoverage": mean_expected_coverage,
+            "capacity": capacities,
+            "lowCapacityRatioMean": low_capacity_mean,
+            "capacityP10Min": capacity_p10_min,
+            "existenceScore": existence_score,
+            "sampleabilityScore": sampleability_score,
+            "score": sampleability_score,
             "active": {
                 "front": mask_stats(masks[front_name]),
                 "side": mask_stats(masks[side_name]),
@@ -215,7 +331,7 @@ def main():
             },
         })
 
-    results.sort(key=lambda item: item["score"], reverse=True)
+    results.sort(key=lambda item: item["sampleabilityScore"], reverse=True)
     diverse_results = [item for item in results if item["distinctSemanticGroups"]]
     current = next(
         (
@@ -235,11 +351,15 @@ def main():
             "excludeLabelPrefix": args.exclude_label_prefix,
             "requireLabel": args.require_label,
             "exactlyOneGroup": args.exactly_one_group,
+            "sampleBudget": args.sample_budget,
+            "lowCapacityThreshold": args.low_capacity_threshold,
         },
         "definition": {
             "front": "front[y,x] is feasible iff exists z with side[y,z] and top[z,x]",
             "side": "side[y,z] is feasible iff exists x with front[y,x] and top[z,x]",
             "top": "top[z,x] is feasible iff exists y with front[y,x] and side[y,z]",
+            "capacity": "number of opposite-axis samples satisfying the other two masks for each projection pixel",
+            "expectedCoverage": "mean per-target-pixel hit probability under sampleBudget uniform samples over the discrete visual hull support",
         },
         "currentBirdAirplaneTower": current,
         "topCandidates": results[:24],
@@ -260,6 +380,7 @@ def main():
         print(
             f"- {item['front']} | {item['side']} | {item['top']} "
             f"min={item['minRecall']:.3f} mean={item['meanRecall']:.3f} "
+            f"exp={item['minExpectedCoverage']:.3f}/{item['meanExpectedCoverage']:.3f} "
             f"F/S/T={r['front']:.3f}/{r['side']:.3f}/{r['top']:.3f}"
         )
     print("top 8 semantically distinct candidates:")
@@ -268,6 +389,7 @@ def main():
         print(
             f"- {item['front']} | {item['side']} | {item['top']} "
             f"min={item['minRecall']:.3f} mean={item['meanRecall']:.3f} "
+            f"exp={item['minExpectedCoverage']:.3f}/{item['meanExpectedCoverage']:.3f} "
             f"F/S/T={r['front']:.3f}/{r['side']:.3f}/{r['top']:.3f}"
         )
 

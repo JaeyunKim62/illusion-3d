@@ -5,9 +5,44 @@
 Use exactly one fixed `nub.png` silhouette.
 Do not use `nub_grad`, `nub_noheart`, `geom_*`, or `motif_compass`.
 
-## Candidate ranking after removing compass
+## Candidate ranking after capacity-aware scoring
+
+The old feasibility score only measured whether each projection pixel had at least one compatible 3D witness.
+The current score also estimates how likely a 30,000 point sample is to hit each projection pixel.
 
 Best implementation-quality candidate if existing `airplane.png` is allowed:
+
+```text
+front: SDF/Rendering/img_candidates/icon_umbrella.png
+side:  SDF/Rendering/img/airplane.png
+top:   SDF/Rendering/img/nub.png
+preview: SDF/Rendering/candidate_previews/nub-umbrella-airplane.png
+```
+
+```text
+min feasible recall:       0.907
+mean feasible recall:      0.951
+min expected 30k coverage: 0.505
+mean expected 30k coverage:0.632
+```
+
+Best visual/legacy comparison candidate:
+
+```text
+front: SDF/Rendering/img/bird.png
+side:  SDF/Rendering/img/airplane.png
+top:   SDF/Rendering/img/Tower.png
+preview: SDF/Rendering/candidate_previews/legacy-bird-airplane-tower.png
+```
+
+```text
+min feasible recall:       0.554
+mean feasible recall:      0.711
+min expected 30k coverage: 0.489
+mean expected 30k coverage:0.593
+```
+
+Previous candidate, now downgraded by sampleability:
 
 ```text
 front: SDF/Rendering/img_candidates/motif_orbit.png
@@ -17,22 +52,26 @@ preview: SDF/Rendering/candidate_previews/nub-orbit-airplane.png
 ```
 
 ```text
-min feasible recall:  0.942
-mean feasible recall: 0.961
+min feasible recall:       0.942
+mean feasible recall:      0.961
+min expected 30k coverage: 0.501
+mean expected 30k coverage:0.611
 ```
 
 Best all-generated companion candidate with `nub` fixed:
 
 ```text
-front: SDF/Rendering/img_candidates/motif_cathedral.png
+front: SDF/Rendering/img_candidates/icon_rocket.png
 side:  SDF/Rendering/img/nub.png
-top:   SDF/Rendering/img_candidates/motif_fountain.png
-preview: SDF/Rendering/candidate_previews/nub-cathedral-fountain.png
+top:   SDF/Rendering/img_candidates/icon_lighthouse.png
+preview: SDF/Rendering/candidate_previews/nub-rocket-lighthouse.png
 ```
 
 ```text
-min feasible recall:  0.859
-mean feasible recall: 0.949
+min feasible recall:       0.853
+mean feasible recall:      0.918
+min expected 30k coverage: 0.488
+mean expected 30k coverage:0.686
 ```
 
 Why not the old candidate:
@@ -60,36 +99,54 @@ python -c "import torch; print(torch.cuda.is_available()); print(torch.version.c
 Recommended preview:
 
 ```bash
-npm run sdf:train:nub-orbit-airplane:preview
-npm run sdf:annotate
-npm run sdf:evaluate
+npm run sdf:train:nub-umbrella-airplane:preview
+npm run sdf:annotate:nub-umbrella-airplane
+npm run sdf:evaluate:nub-umbrella-airplane
 npm run sdf:qa
 ```
 
 Recommended full:
 
 ```bash
-npm run sdf:train:nub-orbit-airplane
-npm run sdf:annotate
-npm run sdf:evaluate
+npm run sdf:train:nub-umbrella-airplane
+npm run sdf:annotate:nub-umbrella-airplane
+npm run sdf:evaluate:nub-umbrella-airplane
 npm run sdf:qa
 ```
 
 All-generated companion preview:
 
 ```bash
-npm run sdf:train:nub-cathedral-fountain:preview
-npm run sdf:annotate
-npm run sdf:evaluate
+npm run sdf:train:nub-rocket-lighthouse:preview
+npm run sdf:annotate:nub-rocket-lighthouse
+npm run sdf:evaluate:nub-rocket-lighthouse
 npm run sdf:qa
 ```
 
 All-generated companion full:
 
 ```bash
-npm run sdf:train:nub-cathedral-fountain
-npm run sdf:annotate
-npm run sdf:evaluate
+npm run sdf:train:nub-rocket-lighthouse
+npm run sdf:annotate:nub-rocket-lighthouse
+npm run sdf:evaluate:nub-rocket-lighthouse
+npm run sdf:qa
+```
+
+Legacy visual comparison preview:
+
+```bash
+npm run sdf:train:legacy-bird-airplane-tower:preview
+npm run sdf:annotate:legacy-bird-airplane-tower
+npm run sdf:evaluate:legacy-bird-airplane-tower
+npm run sdf:qa
+```
+
+Legacy visual comparison full:
+
+```bash
+npm run sdf:train:legacy-bird-airplane-tower
+npm run sdf:annotate:legacy-bird-airplane-tower
+npm run sdf:evaluate:legacy-bird-airplane-tower
 npm run sdf:qa
 ```
 
@@ -104,6 +161,9 @@ Then visit:
 ```text
 http://127.0.0.1:8000/index.html
 http://127.0.0.1:8000/record.html
+http://127.0.0.1:8000/candidate_previews/nub-umbrella-airplane.png
+http://127.0.0.1:8000/candidate_previews/nub-rocket-lighthouse.png
+http://127.0.0.1:8000/candidate_previews/legacy-bird-airplane-tower.png
 http://127.0.0.1:8000/candidate_previews/nub-orbit-airplane.png
 http://127.0.0.1:8000/candidate_previews/nub-cathedral-fountain.png
 ```

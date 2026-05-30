@@ -7,6 +7,30 @@ from PIL import Image, ImageDraw, ImageFont
 OUT_DIR = "candidate_previews"
 TRIPLES = [
     (
+        "legacy-bird-airplane-tower.png",
+        [
+            ("front", "img/bird.png"),
+            ("side", "img/airplane.png"),
+            ("top", "img/Tower.png"),
+        ],
+    ),
+    (
+        "nub-umbrella-airplane.png",
+        [
+            ("front", "img_candidates/icon_umbrella.png"),
+            ("side", "img/airplane.png"),
+            ("top", "img/nub.png"),
+        ],
+    ),
+    (
+        "nub-rocket-lighthouse.png",
+        [
+            ("front", "img_candidates/icon_rocket.png"),
+            ("side", "img/nub.png"),
+            ("top", "img_candidates/icon_lighthouse.png"),
+        ],
+    ),
+    (
         "nub-orbit-airplane.png",
         [
             ("front", "img_candidates/motif_orbit.png"),
