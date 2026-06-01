@@ -62,6 +62,7 @@ document.body.prepend(renderer.domElement);
 
 const params = new URLSearchParams(location.search);
 const showShadow = params.get('shadow') === '1';
+const lightMode = params.get('light') || 'orbit';
 
 // ── Shaders (orange + silhouette texture + Lambert + shadow) ──────────────────
 const VERT = `
@@ -192,6 +193,15 @@ const uniforms = {
   uShadowY:   { value: SHADOW_Y },
   uCoverageReveal: { value: params.get('coverage') === '0' ? 0.0 : 1.0 },
 };
+
+function setLightFromAngles(az, el) {
+  LIGHT_DIR.set(
+    Math.cos(el) * Math.sin(az),
+    Math.sin(el),
+    Math.cos(el) * Math.cos(az),
+  ).normalize();
+  uniforms.uLightDir.value.copy(LIGHT_DIR);
+}
 
 const mat = new THREE.ShaderMaterial({
   uniforms, vertexShader: VERT, fragmentShader: FRAG,
@@ -407,7 +417,9 @@ function startRecording() {
     const blob = new Blob(chunks, { type: 'video/webm' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'sdf-bird-airplane-tower.webm';
+    a.download = pointCloudPath.includes('identity-robot')
+      ? 'sdf-identity-robot-light.webm'
+      : 'sdf-anamorphic-light.webm';
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -448,6 +460,12 @@ function applyState(t) {
   uniforms.uFieldReveal.value = Math.max(0, Math.min(1, fieldIn * fieldOut));
 
   const [az, el] = sampleSpline(CAM_KEYS, t);
+  if (lightMode !== 'fixed') {
+    setLightFromAngles(
+      az + Math.PI * 0.72 + Math.sin(t * 1.15) * 0.45,
+      Math.PI * 0.26 + Math.sin(t * 0.82 + 1.7) * 0.14,
+    );
+  }
 
   const x = CAM_R * Math.cos(el) * Math.sin(az);
   const y = CAM_R * Math.sin(el);
