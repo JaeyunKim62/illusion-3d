@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Record Anamorphic Point Cloud</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #111; display: flex; flex-direction: column;
+      justify-content: center; align-items: center; height: 100vh;
+    }
+    canvas { max-width: 90vw; max-height: 80vh; }
+    #status {
+      margin-top: 16px; color: #aaa;
+      font: 600 14px/1 'Helvetica Neue', monospace;
+      letter-spacing: 1px;
+    }
+    #bar-wrap {
+      margin-top: 8px; width: 320px; height: 4px;
+      background: #333; border-radius: 2px; overflow: hidden;
+    }
+    #bar { height: 100%; width: 0%; background: #5af; transition: width 0.1s; }
+  </style>
+</head>
+<body>
+<div id="status">Loading point cloud ...</div>
+<div id="bar-wrap"><div id="bar"></div></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+// ── Config ─────────────────────────────────────────────────────────────────────
+const WIDTH  = 1920;
+const HEIGHT = 1080;
+const FPS    = 60;
+const CAM_R  = 3.5;
+const PI2    = Math.PI / 2;
+const TOTAL  = 10;
+
+// ── Light & Shadow ────────────────────────────────────────────────────────────
+const LIGHT_DIR = new THREE.Vector3(-1, 1.2, 0.8).normalize();
+const LIGHT_DISTANCE = 3.8;
+const LIGHT_POS = LIGHT_DIR.clone().multiplyScalar(LIGHT_DISTANCE);
+const SHADOW_Y  = -1.3;
+
+// ── Scene ──────────────────────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xf4f1ea);
+
+const camera = new THREE.PerspectiveCamera(50, WIDTH / HEIGHT, 0.01, 100);
+camera.position.set(0, 0, CAM_R);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(WIDTH, HEIGHT);
+document.body.prepend(renderer.domElement);
+
+const params = new URLSearchParams(location.search);
+const showShadow = params.get('shadow') === '1';
+const lightMode = params.get('light') || 'orbit';
+
+// ── Shaders (orange + silhouette texture + Lambert + shadow) ──────────────────
+const VERT = `
+  attribute vec3 colFront;
+  attribute vec3 colSide;
+  attribute vec3 colTop;
+  attribute vec3 initPos;
+  attribute vec4 sdfInfo;
+  attribute float coverageBoost;
+  attribute float pointRadius;
+
+  uniform float uScatter;
+  uniform float uFieldReveal;
+  uniform vec3  uLightDir;
+  uniform vec3  uLightPos;
+  uniform vec3  uCamDir;
+  uniform float uPointSize;
+  uniform float uIsShadow;
+  uniform float uShadowY;
+  uniform float uCoverageReveal;
+
+  varying float vLight;
+  varying float vTexture;
+  varying float vBoundary;
+  varying float vConstraint;
+  varying float vCoverageBoost;
+  varying vec3 vLightViewDir;
+
+  void main() {
+    vec3 pos = mix(position, initPos, uScatter);
+
+    if (uIsShadow > 0.5) {
+      float t = (uShadowY - pos.y) / uLightDir.y;
+      pos = pos + uLightDir * t;
+    }
+
+    // View-dependent texture from silhouette images
+    float pF = max(dot(uCamDir, vec3( 0, 0,-1)), 0.0);
+    float pS = max(dot(uCamDir, vec3(-1, 0, 0)), 0.0);
+    float pT = max(dot(uCamDir, vec3( 0,-1, 0)), 0.0);
+    pF = pF * pF;  pS = pS * pS;  pT = pT * pT;
+    float total = pF + pS + pT + 0.001;
+
+    float texF = 1.0 - dot(colFront / 255.0, vec3(0.299, 0.587, 0.114));
+    float texS = 1.0 - dot(colSide  / 255.0, vec3(0.299, 0.587, 0.114));
+    float texT = 1.0 - dot(colTop   / 255.0, vec3(0.299, 0.587, 0.114));
+    vTexture = (texF * pF + texS * pS + texT * pT) / total;
+
+    vec3 n = normalize(position);
+    vec3 worldToLight = normalize(uLightPos - position);
+    float macroDiff = max(dot(n, worldToLight), 0.0);
+    vLight = mix(0.35, 1.0, macroDiff);
+    float sdfMax = max(max(sdfInfo.x, sdfInfo.y), sdfInfo.z);
+    vBoundary = 1.0 - smoothstep(0.00, 0.18, abs(sdfMax));
+    vConstraint = sdfInfo.w;
+    vCoverageBoost = coverageBoost;
+
+    vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
+    vec3 lightViewPos = (viewMatrix * vec4(uLightPos, 1.0)).xyz;
+    vLightViewDir = normalize(lightViewPos - mvPos.xyz);
+    float depth = clamp(-mvPos.z, 0.5, 20.0);
+    float boost = 1.0 + uCoverageReveal * coverageBoost * 0.42;
+    float radiusScale = clamp(pointRadius, 0.55, 2.20);
+    gl_PointSize = uPointSize * (2.5 / depth) * boost * radiusScale * mix(1.0, 1.32, uFieldReveal * vBoundary);
+    gl_Position  = projectionMatrix * mvPos;
+  }
+`;
+
+const FRAG = `
+  uniform float uIsShadow;
+  uniform float uScatter;
+  uniform float uFieldReveal;
+  uniform float uCoverageReveal;
+  varying float vLight;
+  varying float vTexture;
+  varying float vBoundary;
+  varying float vConstraint;
+  varying float vCoverageBoost;
+  varying vec3 vLightViewDir;
+
+  void main() {
+    vec2 uv = gl_PointCoord - 0.5;
+    float d2 = dot(uv, uv);
+    if (d2 > 0.25) discard;
+    float edge = exp(-d2 * 8.0);
+
+    if (uIsShadow > 0.5) {
+      float a = edge * 0.22 * (1.0 - uScatter);
+      gl_FragColor = vec4(0.0, 0.0, 0.0, a);
+    } else {
+      vec2 normalCoord = uv * 2.0;
+      float localZ = sqrt(max(0.0, 1.0 - dot(normalCoord, normalCoord)));
+      vec3 sphereNormal = normalize(vec3(normalCoord.x, -normalCoord.y, localZ));
+      vec3 lightDir = normalize(vLightViewDir);
+      vec3 viewDir = vec3(0.0, 0.0, 1.0);
+      float beadDiffuse = max(dot(sphereNormal, lightDir), 0.0);
+      float beadRim = pow(1.0 - max(dot(sphereNormal, viewDir), 0.0), 2.0);
+      vec3 reflected = reflect(-lightDir, sphereNormal);
+      float beadSpec = pow(max(dot(reflected, viewDir), 0.0), 34.0);
+      float tex = smoothstep(0.08, 0.95, vTexture);
+      vec3 ink = vec3(0.12, 0.075, 0.035);
+      vec3 amber = vec3(1.0, 0.55, 0.16);
+      vec3 highlight = vec3(1.0, 0.86, 0.48);
+      vec3 col = mix(ink, amber, tex);
+      col = mix(col, highlight, smoothstep(0.72, 1.0, tex) * 0.32);
+      float sphereLight = 0.28 + 0.72 * beadDiffuse;
+      col *= mix(0.62, 1.08, vLight) * mix(0.72, 1.32, sphereLight);
+      col += vec3(1.0, 0.86, 0.52) * beadSpec * mix(0.12, 0.34, tex);
+      col += vec3(0.08, 0.045, 0.02) * beadRim * 0.10;
+      col = mix(col, vec3(1.0, 0.72, 0.28), uCoverageReveal * vCoverageBoost * 0.18);
+      col = mix(col, vec3(0.58), uScatter * 0.36);
+      vec3 frontConstraint = vec3(0.10, 0.55, 1.0);
+      vec3 sideConstraint = vec3(1.0, 0.24, 0.36);
+      vec3 topConstraint = vec3(0.62, 0.95, 0.22);
+      vec3 constraintColor = vConstraint < 0.5 ? frontConstraint : (vConstraint < 1.5 ? sideConstraint : topConstraint);
+      float field = uFieldReveal * (0.20 + 0.80 * vBoundary);
+      col = mix(col, constraintColor, field * 0.62);
+      col += constraintColor * uFieldReveal * vBoundary * 0.20;
+      gl_FragColor = vec4(col, edge * mix(0.78, 1.0, tex));
+    }
+  }
+`;
+
+const uniforms = {
+  uScatter:   { value: 1.0 },
+  uFieldReveal: { value: 0.0 },
+  uLightDir:  { value: LIGHT_DIR },
+  uLightPos:  { value: LIGHT_POS },
+  uCamDir:    { value: new THREE.Vector3(0, 0, -1) },
+  uPointSize: { value: 6.6 },
+  uIsShadow:  { value: 0.0 },
+  uShadowY:   { value: SHADOW_Y },
+  uCoverageReveal: { value: params.get('coverage') === '0' ? 0.0 : 1.0 },
+};
+
+function setLightFromAngles(az, el) {
+  LIGHT_DIR.set(
+    Math.cos(el) * Math.sin(az),
+    Math.sin(el),
+    Math.cos(el) * Math.cos(az),
+  ).normalize();
+  LIGHT_POS.copy(LIGHT_DIR).multiplyScalar(LIGHT_DISTANCE);
+  uniforms.uLightDir.value.copy(LIGHT_DIR);
+  uniforms.uLightPos.value.copy(LIGHT_POS);
+}
+
+const mat = new THREE.ShaderMaterial({
+  uniforms, vertexShader: VERT, fragmentShader: FRAG,
+  transparent: true, depthWrite: false,
+});
+
+const shadowUniforms = {
+  uScatter:  uniforms.uScatter,
+  uFieldReveal: uniforms.uFieldReveal,
+  uLightDir: uniforms.uLightDir,
+  uLightPos: uniforms.uLightPos,
+  uCamDir:   uniforms.uCamDir,
+  uPointSize: uniforms.uPointSize,
+  uIsShadow: { value: 1.0 },
+  uShadowY:  uniforms.uShadowY,
+  uCoverageReveal: uniforms.uCoverageReveal,
+};
+
+const shadowMat = new THREE.ShaderMaterial({
+  uniforms: shadowUniforms, vertexShader: VERT, fragmentShader: FRAG,
+  transparent: true, depthWrite: false,
+});
+
+// ── Ground plane ──────────────────────────────────────────────────────────────
+const groundGeo = new THREE.PlaneGeometry(8, 8);
+const groundMat = new THREE.MeshBasicMaterial({ color: 0xe9e3d6 });
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = SHADOW_Y;
+if (showShadow) scene.add(ground);
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function mulberry32(seed) {
+  return () => {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function catmullRom(p0, p1, p2, p3, t) {
+  const t2 = t * t, t3 = t2 * t;
+  return 0.5 * (
+    2 * p1 +
+    (-p0 + p2) * t +
+    (2*p0 - 5*p1 + 4*p2 - p3) * t2 +
+    (-p0 + 3*p1 - 3*p2 + p3) * t3
+  );
+}
+
+function sampleSpline(keys, t) {
+  let i = 0;
+  while (i < keys.length - 2 && keys[i + 1][0] < t) i++;
+  const s0 = Math.max(0, i - 1);
+  const s1 = i;
+  const s2 = Math.min(keys.length - 1, i + 1);
+  const s3 = Math.min(keys.length - 1, i + 2);
+  const p = Math.max(0, Math.min(1,
+    (t - keys[s1][0]) / (keys[s2][0] - keys[s1][0] + 0.001)));
+  return [
+    catmullRom(keys[s0][1], keys[s1][1], keys[s2][1], keys[s3][1], p),
+    catmullRom(keys[s0][2], keys[s1][2], keys[s2][2], keys[s3][2], p),
+  ];
+}
+
+// Camera path: smooth flowing orbit
+const CAM_KEYS = [
+  [ 0.0,  -0.05,   0.02  ],
+  [ 1.4,   0.03,   0.0   ],
+  [ 2.9,   PI2,    0.03  ],
+  [ 4.6,   PI2+0.08, PI2*0.95],
+  [ 6.5,   PI2 + Math.PI*0.32, PI2*0.38 ],
+  [ 8.7,   PI2 + Math.PI*0.55, PI2*0.2  ],
+  [10.0,   PI2 + Math.PI*0.6,  PI2*0.15 ],
+];
+
+const SCATTER_KEYS = [
+  [ 0.0, 1.0 ],
+  [ 0.25, 1.0 ],
+  [ 1.35, 0.0 ],
+  [ 8.6, 0.0 ],
+  [ 9.75, 1.0 ],
+  [10.0, 1.0 ],
+];
+
+function sampleScatter(t) {
+  const K = SCATTER_KEYS;
+  let i = 0;
+  while (i < K.length - 2 && K[i + 1][0] < t) i++;
+  const p = Math.max(0, Math.min(1,
+    (t - K[i][0]) / (K[i+1][0] - K[i][0] + 0.001)));
+  const s = p * p * (3 - 2 * p);
+  return K[i][1] + (K[i+1][1] - K[i][1]) * s;
+}
+
+// ── Load & Record ──────────────────────────────────────────────────────────────
+const status = document.getElementById('status');
+const bar    = document.getElementById('bar');
+const pointCloudPath = params.get('points') || 'data/points-sdf.json';
+
+fetch(pointCloudPath)
+  .then(r => r.json())
+  .then(data => {
+    const pts = data.points;
+    const n = pts.length;
+    const cF = data.colorFront;
+    const cS = data.colorSide;
+    const cT = data.colorTop || data.colorFront;
+
+    const pos  = new Float32Array(n * 3);
+    const cf   = new Float32Array(n * 3);
+    const cs   = new Float32Array(n * 3);
+    const ct   = new Float32Array(n * 3);
+    const init = new Float32Array(n * 3);
+    const sdfInfo = new Float32Array(n * 4);
+    const rng  = mulberry32(0xcafe);
+    const sdfFront = data.sdf?.front || [];
+    const sdfSide = data.sdf?.side || [];
+    const sdfTop = data.sdf?.top || [];
+    const sdfActiveConstraint = data.sdfActiveConstraint || [];
+    const coverageBoostData = data.coverageBoost || [];
+    const coverageBoost = new Float32Array(n);
+    const pointRadiusData = data.splatRadius || data.radius || [];
+    const pointRadius = new Float32Array(n);
+
+    for (let i = 0; i < n; i++) {
+      pos[i*3]   = pts[i][0];
+      pos[i*3+1] = pts[i][1];
+      pos[i*3+2] = pts[i][2];
+
+      cf[i*3] = cF[i][0]; cf[i*3+1] = cF[i][1]; cf[i*3+2] = cF[i][2];
+      cs[i*3] = cS[i][0]; cs[i*3+1] = cS[i][1]; cs[i*3+2] = cS[i][2];
+      ct[i*3] = cT[i][0]; ct[i*3+1] = cT[i][1]; ct[i*3+2] = cT[i][2];
+      sdfInfo[i*4] = sdfFront[i] ?? -0.25;
+      sdfInfo[i*4+1] = sdfSide[i] ?? -0.25;
+      sdfInfo[i*4+2] = sdfTop[i] ?? -0.25;
+      sdfInfo[i*4+3] = sdfActiveConstraint[i] ?? 0;
+      coverageBoost[i] = coverageBoostData[i] ?? 0;
+      pointRadius[i] = pointRadiusData[i] ?? 1.0;
+
+      const theta = rng() * Math.PI * 2;
+      const phi   = Math.acos(2 * rng() - 1);
+      const r     = 4 + rng() * 4;
+      init[i*3]   = r * Math.sin(phi) * Math.cos(theta);
+      init[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+      init[i*3+2] = r * Math.cos(phi);
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos,  3));
+    geo.setAttribute('colFront', new THREE.BufferAttribute(cf,   3));
+    geo.setAttribute('colSide',  new THREE.BufferAttribute(cs,   3));
+    geo.setAttribute('colTop',   new THREE.BufferAttribute(ct,   3));
+    geo.setAttribute('initPos',  new THREE.BufferAttribute(init, 3));
+    geo.setAttribute('sdfInfo',  new THREE.BufferAttribute(sdfInfo, 4));
+    geo.setAttribute('coverageBoost', new THREE.BufferAttribute(coverageBoost, 1));
+    geo.setAttribute('pointRadius', new THREE.BufferAttribute(pointRadius, 1));
+
+    let shadowCloud = null;
+    if (showShadow) {
+      // Diagnostic only: this is a ground-plane projection, so it mostly reads as the top silhouette.
+      shadowCloud = new THREE.Points(geo, shadowMat);
+      shadowCloud.userData.derivedProjectionShadow = true;
+      scene.add(shadowCloud);
+    }
+    // Main points
+    const cloud = new THREE.Points(geo, mat);
+    cloud.userData.contestCloud = true;
+    scene.add(cloud);
+
+    window.__SDF_RENDERING_QA__ = Object.freeze({
+      pointCount: n,
+      contestPointObjects: 1,
+      derivedShadowPointObjects: showShadow ? 1 : 0,
+      sharedGeometryForShadow: showShadow ? shadowCloud.geometry === cloud.geometry : null,
+      fixedPositions: true,
+      hasViewColorAttributes: Boolean(cF && cS && cT),
+      hasSdfAttributes: Boolean(data.sdf && data.sdfMax && data.sdfActiveConstraint),
+      hasCoverageBoost: Boolean(data.coverageBoost),
+      hasPointRadius: Boolean(data.radius || data.splatRadius),
+      materialModel: 'ray-directional-luminance + sphere-impostor lighting',
+      pointRasterization: 'Gaussian-style point splat with gl_PointCoord lighting',
+      sdfAnnotation: data.sdfAnnotation,
+      hiddenBillboards: false,
+      textureSwap: false,
+      geometrySwap: false,
+      viewDependentOpacityGate: false,
+      algorithm: 'coverage-aware-sdf-resampling-renderer',
+    });
+
+    status.textContent = 'Recording …';
+    startRecording();
+  })
+  .catch(() => { status.textContent = `Error: ${pointCloudPath} not found`; });
+
+// ── Recording ──────────────────────────────────────────────────────────────────
+function startRecording() {
+  const stream = renderer.domElement.captureStream(FPS);
+
+  let mimeType = 'video/webm;codecs=vp9';
+  if (!MediaRecorder.isTypeSupported(mimeType)) {
+    mimeType = 'video/webm;codecs=vp8';
+    if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
+  }
+
+  const recorder = new MediaRecorder(stream, {
+    mimeType, videoBitsPerSecond: 10_000_000,
+  });
+
+  const chunks = [];
+  recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  recorder.onstop = () => {
+    const blob = new Blob(chunks, { type: 'video/webm' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = pointCloudPath.includes('identity-robot')
+      ? 'sdf-identity-robot-light.webm'
+      : 'sdf-anamorphic-light.webm';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    status.textContent = `Done — anamorphic.webm (${(blob.size/1024/1024).toFixed(1)} MB)`;
+    bar.style.width = '100%';
+  };
+
+  recorder.start();
+  const t0 = performance.now();
+
+  function tick() {
+    const elapsed = (performance.now() - t0) / 1000;
+
+    if (elapsed >= TOTAL) {
+      applyState(TOTAL - 0.001);
+      renderer.render(scene, camera);
+      recorder.stop();
+      return;
+    }
+
+    applyState(elapsed);
+    renderer.render(scene, camera);
+
+    status.textContent = `Recording … ${elapsed.toFixed(1)} / ${TOTAL}s`;
+    bar.style.width = `${(elapsed / TOTAL * 100).toFixed(1)}%`;
+
+    requestAnimationFrame(tick);
+  }
+
+  requestAnimationFrame(tick);
+}
+
+// ── Animation state ───────────────────────────────────────────────────────────
+function applyState(t) {
+  uniforms.uScatter.value = sampleScatter(t);
+  const fieldIn = smoothstep(6.1, 6.8, t);
+  const fieldOut = 1.0 - smoothstep(8.5, 9.2, t);
+  uniforms.uFieldReveal.value = Math.max(0, Math.min(1, fieldIn * fieldOut));
+
+  const [az, el] = sampleSpline(CAM_KEYS, t);
+  if (lightMode !== 'fixed') {
+    setLightFromAngles(
+      az + Math.PI * 0.72 + Math.sin(t * 1.15) * 0.45,
+      Math.PI * 0.26 + Math.sin(t * 0.82 + 1.7) * 0.14,
+    );
+  }
+
+  const x = CAM_R * Math.cos(el) * Math.sin(az);
+  const y = CAM_R * Math.sin(el);
+  const z = CAM_R * Math.cos(el) * Math.cos(az);
+  camera.position.set(x, y, z);
+
+  camera.up.set(0, Math.cos(el), Math.sin(el));
+  camera.lookAt(0, 0, 0);
+
+  const vd = new THREE.Vector3();
+  camera.getWorldDirection(vd);
+  uniforms.uCamDir.value.copy(vd);
+}
+
+function smoothstep(edge0, edge1, x) {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+</script>
+</body>
+</html>

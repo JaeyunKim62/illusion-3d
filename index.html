@@ -1,13 +1,512 @@
-<!doctype html>
-<html lang="ko">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>One Cloud, Multiple Readings - 3D Lenticular Point Cloud</title>
-    <meta name="description" content="Single shared BufferGeometry point cloud for the KAIST 3D Rendering Contest: front projection reads a goose reference image and right projection reads a nubzuki reference image." />
-  </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
-  </body>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Anamorphic Point Cloud</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #f0f0f0; overflow: hidden; }
+    #hud {
+      position: fixed; bottom: 24px; width: 100%; text-align: center;
+      color: transparent; font: 12px/1.6 'Helvetica Neue', sans-serif;
+      letter-spacing: 1px; pointer-events: none;
+    }
+    #hud::after {
+      content: "drag to rotate · scroll to zoom · space scatter · L orbit light · F SDF field · I reference image · 1/2/3 reference view";
+      color: rgba(0,0,0,0.35);
+    }
+    #referenceOverlay {
+      position: fixed; top: 18px; right: 18px; width: min(28vw, 320px);
+      padding: 10px; border: 1px solid rgba(0,0,0,0.14);
+      background: rgba(244,241,234,0.82); backdrop-filter: blur(8px);
+      box-shadow: 0 18px 50px rgba(0,0,0,0.18);
+      font: 600 11px/1.35 'Helvetica Neue', sans-serif;
+      letter-spacing: 0.8px; color: rgba(0,0,0,0.58);
+      display: none; pointer-events: none;
+    }
+    #referenceOverlay.is-visible { display: block; }
+    #referenceOverlay img {
+      display: block; width: 100%; aspect-ratio: 1 / 1;
+      object-fit: contain; margin-top: 8px;
+      background: rgba(255,255,255,0.66);
+    }
+  </style>
+</head>
+<body>
+<div id="referenceOverlay">
+  <div id="referenceLabel">FRONT +Z reference</div>
+  <img id="referenceImage" alt="">
+</div>
+<div id="hud">drag to rotate · scroll to zoom · space to scatter · +/- point size · arrow keys move light · 5 reset light</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ── Scene ──────────────────────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xf4f1ea);
+
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.01, 100);
+camera.position.set(0, 0, 3.5);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const params = new URLSearchParams(location.search);
+const showShadow = params.get('shadow') === '1';
+const lightMode = params.get('light') || 'static';
+let animateLight = lightMode === 'orbit';
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.12;
+controls.minDistance = 1.5;
+controls.maxDistance = 12;
+
+const referenceOverlay = document.getElementById('referenceOverlay');
+const referenceLabel = document.getElementById('referenceLabel');
+const referenceImage = document.getElementById('referenceImage');
+const referenceViews = [
+  { label: 'FRONT +Z reference: bird', src: 'img/bird.png', camera: new THREE.Vector3(0, 0, 3.5), up: new THREE.Vector3(0, 1, 0) },
+  { label: 'SIDE +X reference: airplane', src: 'img/airplane.png', camera: new THREE.Vector3(3.5, 0, 0), up: new THREE.Vector3(0, 1, 0) },
+  { label: 'TOP +Y reference: tower', src: 'img/Tower.png', camera: new THREE.Vector3(0, 3.5, 0), up: new THREE.Vector3(0, 0, 1) },
+];
+let referenceVisible = false;
+let referenceIndex = 0;
+
+function updateReferenceOverlay() {
+  const view = referenceViews[referenceIndex];
+  referenceLabel.textContent = view.label;
+  referenceImage.src = view.src;
+  referenceImage.alt = view.label;
+  referenceOverlay.classList.toggle('is-visible', referenceVisible);
+}
+
+function setCameraForReference(index) {
+  const view = referenceViews[index];
+  camera.position.copy(view.camera);
+  camera.up.copy(view.up);
+  camera.lookAt(0, 0, 0);
+  controls.target.set(0, 0, 0);
+  controls.update();
+  const viewDir = new THREE.Vector3();
+  camera.getWorldDirection(viewDir);
+  uniforms.uCamDir.value.copy(viewDir);
+}
+updateReferenceOverlay();
+
+// ── Light direction (adjustable via numpad) ───────────────────────────────────
+// Spherical: azimuth (horizontal angle), elevation (vertical angle)
+let lightAz = Math.PI * 0.75;   // ~135° (upper-left)
+let lightEl = Math.PI * 0.3;    // ~54° elevation
+let lightDistance = 3.8;
+const LIGHT_DIR = new THREE.Vector3();
+const LIGHT_POS = new THREE.Vector3();
+function updateLightDir() {
+  LIGHT_POS.set(
+    lightDistance * Math.cos(lightEl) * Math.sin(lightAz),
+    lightDistance * Math.sin(lightEl),
+    lightDistance * Math.cos(lightEl) * Math.cos(lightAz),
+  );
+  LIGHT_DIR.copy(LIGHT_POS).normalize();
+}
+updateLightDir();
+function setLightFromAngles(az, el) {
+  lightAz = az;
+  lightEl = el;
+  updateLightDir();
+  uniforms.uLightDir.value.copy(LIGHT_DIR);
+  uniforms.uLightPos.value.copy(LIGHT_POS);
+}
+const SHADOW_Y  = -1.3;   // ground plane Y for shadow
+
+// ── Shaders ───────────────────────────────────────────────────────────────────
+const VERT = `
+  attribute vec3 colFront;
+  attribute vec3 colSide;
+  attribute vec3 colTop;
+  attribute vec3 initPos;
+  attribute vec4 sdfInfo;
+  attribute float coverageBoost;
+  attribute float pointRadius;
+
+  uniform float uScatter;
+  uniform float uFieldReveal;
+  uniform vec3  uLightDir;
+  uniform vec3  uLightPos;
+  uniform vec3  uCamDir;
+  uniform float uPointSize;
+  uniform float uDPR;
+  uniform float uIsShadow;
+  uniform float uShadowY;
+  uniform float uCoverageReveal;
+
+  varying float vLight;
+  varying float vTexture;
+  varying float vBoundary;
+  varying float vConstraint;
+  varying float vCoverageBoost;
+  varying vec3 vLightViewDir;
+
+  void main() {
+    vec3 pos = mix(position, initPos, uScatter);
+
+    if (uIsShadow > 0.5) {
+      float t = (uShadowY - pos.y) / uLightDir.y;
+      pos = pos + uLightDir * t;
+    }
+
+    // View-dependent texture: grayscale from silhouette images
+    float pF = max(dot(uCamDir, vec3( 0, 0,-1)), 0.0);
+    float pS = max(dot(uCamDir, vec3(-1, 0, 0)), 0.0);
+    float pT = max(dot(uCamDir, vec3( 0,-1, 0)), 0.0);
+    pF = pF * pF;  pS = pS * pS;  pT = pT * pT;
+    float total = pF + pS + pT + 0.001;
+
+    // Silhouette darkness as texture (0=black/ink, 1=white/empty)
+    float texF = 1.0 - dot(colFront / 255.0, vec3(0.299, 0.587, 0.114));
+    float texS = 1.0 - dot(colSide  / 255.0, vec3(0.299, 0.587, 0.114));
+    float texT = 1.0 - dot(colTop   / 255.0, vec3(0.299, 0.587, 0.114));
+    vTexture = (texF * pF + texS * pS + texT * pT) / total;
+
+    vec3 n = normalize(position);
+    vec3 worldToLight = normalize(uLightPos - position);
+    float macroDiff = max(dot(n, worldToLight), 0.0);
+    vLight = mix(0.35, 1.0, macroDiff);
+    float sdfMax = max(max(sdfInfo.x, sdfInfo.y), sdfInfo.z);
+    vBoundary = 1.0 - smoothstep(0.00, 0.18, abs(sdfMax));
+    vConstraint = sdfInfo.w;
+    vCoverageBoost = coverageBoost;
+
+    vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
+    vec3 lightViewPos = (viewMatrix * vec4(uLightPos, 1.0)).xyz;
+    vLightViewDir = normalize(lightViewPos - mvPos.xyz);
+    float depth = clamp(-mvPos.z, 0.5, 20.0);
+    float boost = 1.0 + uCoverageReveal * coverageBoost * 0.42;
+    float radiusScale = clamp(pointRadius, 0.55, 2.20);
+    gl_PointSize = uPointSize * uDPR * (2.5 / depth) * boost * radiusScale * mix(1.0, 1.32, uFieldReveal * vBoundary);
+    gl_Position  = projectionMatrix * mvPos;
+  }
+`;
+
+const FRAG = `
+  uniform float uIsShadow;
+  uniform float uScatter;
+  uniform float uFieldReveal;
+  uniform float uCoverageReveal;
+  varying float vLight;
+  varying float vTexture;
+  varying float vBoundary;
+  varying float vConstraint;
+  varying float vCoverageBoost;
+  varying vec3 vLightViewDir;
+
+  void main() {
+    vec2 uv = gl_PointCoord - 0.5;
+    float d2 = dot(uv, uv);
+    if (d2 > 0.25) discard;
+    float edge = exp(-d2 * 8.0);
+
+    if (uIsShadow > 0.5) {
+      float a = edge * 0.22 * (1.0 - uScatter);
+      gl_FragColor = vec4(0.0, 0.0, 0.0, a);
+    } else {
+      vec2 normalCoord = uv * 2.0;
+      float localZ = sqrt(max(0.0, 1.0 - dot(normalCoord, normalCoord)));
+      vec3 sphereNormal = normalize(vec3(normalCoord.x, -normalCoord.y, localZ));
+      vec3 lightDir = normalize(vLightViewDir);
+      vec3 viewDir = vec3(0.0, 0.0, 1.0);
+      float beadDiffuse = max(dot(sphereNormal, lightDir), 0.0);
+      float beadRim = pow(1.0 - max(dot(sphereNormal, viewDir), 0.0), 2.0);
+      vec3 reflected = reflect(-lightDir, sphereNormal);
+      float beadSpec = pow(max(dot(reflected, viewDir), 0.0), 34.0);
+      float tex = smoothstep(0.08, 0.95, vTexture);
+      vec3 ink = vec3(0.12, 0.075, 0.035);
+      vec3 amber = vec3(1.0, 0.55, 0.16);
+      vec3 highlight = vec3(1.0, 0.86, 0.48);
+      vec3 col = mix(ink, amber, tex);
+      col = mix(col, highlight, smoothstep(0.72, 1.0, tex) * 0.32);
+      float sphereLight = 0.28 + 0.72 * beadDiffuse;
+      col *= mix(0.62, 1.08, vLight) * mix(0.72, 1.32, sphereLight);
+      col += vec3(1.0, 0.86, 0.52) * beadSpec * mix(0.12, 0.34, tex);
+      col += vec3(0.08, 0.045, 0.02) * beadRim * 0.10;
+      col = mix(col, vec3(1.0, 0.72, 0.28), uCoverageReveal * vCoverageBoost * 0.18);
+      col = mix(col, vec3(0.58), uScatter * 0.36);
+      vec3 frontConstraint = vec3(0.10, 0.55, 1.0);
+      vec3 sideConstraint = vec3(1.0, 0.24, 0.36);
+      vec3 topConstraint = vec3(0.62, 0.95, 0.22);
+      vec3 constraintColor = vConstraint < 0.5 ? frontConstraint : (vConstraint < 1.5 ? sideConstraint : topConstraint);
+      float field = uFieldReveal * (0.20 + 0.80 * vBoundary);
+      col = mix(col, constraintColor, field * 0.62);
+      col += constraintColor * uFieldReveal * vBoundary * 0.20;
+      gl_FragColor = vec4(col, edge * mix(0.78, 1.0, tex));
+    }
+  }
+`;
+
+const uniforms = {
+  uScatter:   { value: 1.0 },
+  uFieldReveal: { value: new URLSearchParams(location.search).get('field') === '1' ? 1.0 : 0.0 },
+  uLightDir:  { value: LIGHT_DIR },
+  uLightPos:  { value: LIGHT_POS },
+  uCamDir:    { value: new THREE.Vector3(0, 0, -1) },
+  uPointSize: { value: 6.6 },
+  uDPR:       { value: devicePixelRatio },
+  uIsShadow:  { value: 0.0 },
+  uShadowY:   { value: SHADOW_Y },
+  uCoverageReveal: { value: params.get('coverage') === '0' ? 0.0 : 1.0 },
+};
+
+const mat = new THREE.ShaderMaterial({
+  uniforms,
+  vertexShader:   VERT,
+  fragmentShader: FRAG,
+  transparent:    true,
+  depthWrite:     false,
+});
+
+// Shadow uses same shader with uIsShadow=1
+const shadowUniforms = {
+  uScatter:   uniforms.uScatter,
+  uFieldReveal: uniforms.uFieldReveal,
+  uLightDir:  uniforms.uLightDir,
+  uLightPos:  uniforms.uLightPos,
+  uCamDir:    uniforms.uCamDir,
+  uPointSize: uniforms.uPointSize,
+  uDPR:       uniforms.uDPR,
+  uIsShadow:  { value: 1.0 },
+  uShadowY:   uniforms.uShadowY,
+  uCoverageReveal: uniforms.uCoverageReveal,
+};
+
+const shadowMat = new THREE.ShaderMaterial({
+  uniforms: shadowUniforms,
+  vertexShader:   VERT,
+  fragmentShader: FRAG,
+  transparent:    true,
+  depthWrite:     false,
+});
+
+// ── Ground plane ──────────────────────────────────────────────────────────────
+const groundGeo = new THREE.PlaneGeometry(8, 8);
+const groundMat = new THREE.MeshBasicMaterial({ color: 0xe9e3d6 });
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = SHADOW_Y;
+if (showShadow) scene.add(ground);
+
+// ── State ──────────────────────────────────────────────────────────────────────
+let cloud = null;
+let shadowCloud = null;
+let scatterTarget  = 0.0;
+let scatterCurrent = 0.0;
+let lastTime = performance.now();
+
+// ── Load points ────────────────────────────────────────────────────────────────
+const pointCloudPath = params.get('points') || 'data/points-sdf.json';
+
+fetch(pointCloudPath)
+  .then(r => r.json())
+  .then(data => {
+    const pts = data.points;
+    const n   = pts.length;
+    const cF = data.colorFront;
+    const cS = data.colorSide;
+    const cT = data.colorTop || data.colorFront;
+
+    const pos  = new Float32Array(n * 3);
+    const cf   = new Float32Array(n * 3);
+    const cs   = new Float32Array(n * 3);
+    const ct   = new Float32Array(n * 3);
+    const init = new Float32Array(n * 3);
+    const sdfInfo = new Float32Array(n * 4);
+    const rng = mulberry32(0xcafe);
+    const sdfFront = data.sdf?.front || [];
+    const sdfSide = data.sdf?.side || [];
+    const sdfTop = data.sdf?.top || [];
+    const sdfActiveConstraint = data.sdfActiveConstraint || [];
+    const coverageBoostData = data.coverageBoost || [];
+    const coverageBoost = new Float32Array(n);
+    const pointRadiusData = data.splatRadius || data.radius || [];
+    const pointRadius = new Float32Array(n);
+
+    for (let i = 0; i < n; i++) {
+      pos[i*3]   = pts[i][0];
+      pos[i*3+1] = pts[i][1];
+      pos[i*3+2] = pts[i][2];
+
+      cf[i*3] = cF[i][0]; cf[i*3+1] = cF[i][1]; cf[i*3+2] = cF[i][2];
+      cs[i*3] = cS[i][0]; cs[i*3+1] = cS[i][1]; cs[i*3+2] = cS[i][2];
+      ct[i*3] = cT[i][0]; ct[i*3+1] = cT[i][1]; ct[i*3+2] = cT[i][2];
+      sdfInfo[i*4] = sdfFront[i] ?? -0.25;
+      sdfInfo[i*4+1] = sdfSide[i] ?? -0.25;
+      sdfInfo[i*4+2] = sdfTop[i] ?? -0.25;
+      sdfInfo[i*4+3] = sdfActiveConstraint[i] ?? 0;
+      coverageBoost[i] = coverageBoostData[i] ?? 0;
+      pointRadius[i] = pointRadiusData[i] ?? 1.0;
+
+      const theta = rng() * Math.PI * 2;
+      const phi   = Math.acos(2 * rng() - 1);
+      const r     = 4.0 + rng() * 4.0;
+      init[i*3]   = r * Math.sin(phi) * Math.cos(theta);
+      init[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+      init[i*3+2] = r * Math.cos(phi);
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos,  3));
+    geo.setAttribute('colFront', new THREE.BufferAttribute(cf,   3));
+    geo.setAttribute('colSide',  new THREE.BufferAttribute(cs,   3));
+    geo.setAttribute('colTop',   new THREE.BufferAttribute(ct,   3));
+    geo.setAttribute('initPos',  new THREE.BufferAttribute(init, 3));
+    geo.setAttribute('sdfInfo',  new THREE.BufferAttribute(sdfInfo, 4));
+    geo.setAttribute('coverageBoost', new THREE.BufferAttribute(coverageBoost, 1));
+    geo.setAttribute('pointRadius', new THREE.BufferAttribute(pointRadius, 1));
+
+    if (showShadow) {
+      // Diagnostic only: this is a ground-plane projection, so it mostly reads as the top silhouette.
+      shadowCloud = new THREE.Points(geo, shadowMat);
+      shadowCloud.userData.derivedProjectionShadow = true;
+      scene.add(shadowCloud);
+    }
+
+    // Main points
+    cloud = new THREE.Points(geo, mat);
+    cloud.userData.contestCloud = true;
+    scene.add(cloud);
+
+    window.__SDF_RENDERING_QA__ = Object.freeze({
+      pointCount: n,
+      contestPointObjects: 1,
+      derivedShadowPointObjects: showShadow ? 1 : 0,
+      sharedGeometryForShadow: showShadow ? shadowCloud.geometry === cloud.geometry : null,
+      fixedPositions: true,
+      hasViewColorAttributes: Boolean(cF && cS && cT),
+      hasSdfAttributes: Boolean(data.sdf && data.sdfMax && data.sdfActiveConstraint),
+      hasCoverageBoost: Boolean(data.coverageBoost),
+      hasPointRadius: Boolean(data.radius || data.splatRadius),
+      materialModel: 'ray-directional-luminance + sphere-impostor lighting',
+      pointRasterization: 'Gaussian-style point splat with gl_PointCoord lighting',
+      sdfAnnotation: data.sdfAnnotation,
+      diagnosticReferenceOverlay: 'DOM only, toggled with I/1/2/3, not a scene object',
+      hiddenBillboards: false,
+      textureSwap: false,
+      geometrySwap: false,
+      viewDependentOpacityGate: false,
+      algorithm: data.softSplatOptimization ? 'sdf-constrained-soft-splat-refinement' : 'coverage-aware-sdf-resampling-renderer',
+    });
+
+    console.log(`Loaded ${n} points from ${pointCloudPath}`);
+    tick();
+  })
+  .catch(err => {
+    console.error(err);
+    document.body.innerHTML = `
+      <pre style="color:#f66;padding:40px;font-size:14px">${pointCloudPath} not found or invalid.</pre>`;
+  });
+
+// ── Animation loop ─────────────────────────────────────────────────────────────
+function tick() {
+  requestAnimationFrame(tick);
+
+  const now = performance.now();
+  const dt  = Math.min((now - lastTime) / 1000, 0.1);
+  lastTime  = now;
+
+  scatterCurrent += (scatterTarget - scatterCurrent) * Math.min(1.0, 3.5 * dt);
+  uniforms.uScatter.value = scatterCurrent;
+
+  if (animateLight) {
+    const t = now * 0.001;
+    setLightFromAngles(
+      Math.PI * 0.72 + Math.sin(t * 0.55) * 0.62,
+      Math.PI * 0.24 + Math.sin(t * 0.37 + 1.4) * 0.16,
+    );
+  }
+
+  // Update camera direction for texture blending
+  const _vd = new THREE.Vector3();
+  camera.getWorldDirection(_vd);
+  uniforms.uCamDir.value.copy(_vd);
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+// ── Keyboard ───────────────────────────────────────────────────────────────────
+const LIGHT_STEP = 0.1;  // radians per keypress
+
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    scatterTarget = scatterTarget < 0.5 ? 1.0 : 0.0;
+  }
+  if (e.key === 'f' || e.key === 'F') {
+    uniforms.uFieldReveal.value = uniforms.uFieldReveal.value > 0.5 ? 0.0 : 1.0;
+  }
+  if (e.key === 'l' || e.key === 'L') {
+    animateLight = !animateLight;
+  }
+  if (e.key === 'i' || e.key === 'I') {
+    referenceVisible = !referenceVisible;
+    if (referenceVisible) setCameraForReference(referenceIndex);
+    updateReferenceOverlay();
+  }
+  if (e.key === '1' || e.key === '2' || e.key === '3') {
+    referenceIndex = Number(e.key) - 1;
+    referenceVisible = true;
+    setCameraForReference(referenceIndex);
+    updateReferenceOverlay();
+  }
+  if (e.key === '+' || e.key === '=')
+    uniforms.uPointSize.value = Math.min(20, uniforms.uPointSize.value + 1);
+  if (e.key === '-' || e.key === '_')
+    uniforms.uPointSize.value = Math.max(1, uniforms.uPointSize.value - 1);
+
+  // Arrow keys: move light
+  let lightChanged = false;
+  if (e.code === 'ArrowLeft')  { lightAz += LIGHT_STEP; lightChanged = true; }
+  if (e.code === 'ArrowRight') { lightAz -= LIGHT_STEP; lightChanged = true; }
+  if (e.code === 'ArrowUp')    { lightEl = Math.min(Math.PI/2 - 0.05, lightEl + LIGHT_STEP); lightChanged = true; }
+  if (e.code === 'ArrowDown')  { lightEl = Math.max(-0.2, lightEl - LIGHT_STEP); lightChanged = true; }
+  if (e.code === 'Numpad5' || e.key === '5') { lightAz = Math.PI*0.75; lightEl = Math.PI*0.3; lightChanged = true; }
+
+  if (lightChanged) {
+    e.preventDefault();
+    updateLightDir();
+    uniforms.uLightDir.value.copy(LIGHT_DIR);
+    uniforms.uLightPos.value.copy(LIGHT_POS);
+    console.log(`Light: az=${(lightAz*180/Math.PI).toFixed(0)}° el=${(lightEl*180/Math.PI).toFixed(0)}°`);
+  }
+});
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function mulberry32(seed) {
+  return () => {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+</script>
+</body>
 </html>
