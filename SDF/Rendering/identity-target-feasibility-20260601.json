@@ -1,0 +1,122 @@
+{
+  "schema": "identity-target-feasibility/v1",
+  "sets": {
+    "identity_robot": {
+      "paths": {
+        "front": "img_identity/identity_robot_front.png",
+        "side": "img_identity/identity_robot_side.png",
+        "top": "img_identity/identity_robot_top.png"
+      },
+      "recall": {
+        "front": 1.0,
+        "side": 0.9859348723436784,
+        "top": 0.8117262512768131
+      },
+      "expectedCoverage": {
+        "front": 0.6545071044432477,
+        "side": 0.7588529021871498,
+        "top": 0.5846173390294915
+      },
+      "minRecall": 0.8117262512768131,
+      "meanRecall": 0.9325537078734971,
+      "minExpectedCoverage": 0.5846173390294915,
+      "meanExpectedCoverage": 0.6659924485532963,
+      "score": 6.019729406350066,
+      "active": {
+        "front": {
+          "active": 27081,
+          "total": 65536,
+          "ratio": 0.4132232666015625
+        },
+        "side": {
+          "active": 19623,
+          "total": 65536,
+          "ratio": 0.2994232177734375
+        },
+        "top": {
+          "active": 24475,
+          "total": 65536,
+          "ratio": 0.3734588623046875
+        }
+      }
+    },
+    "identity_trophy": {
+      "paths": {
+        "front": "img_identity/identity_trophy_front.png",
+        "side": "img_identity/identity_trophy_side.png",
+        "top": "img_identity/identity_trophy_top.png"
+      },
+      "recall": {
+        "front": 0.9574186384214572,
+        "side": 1.0,
+        "top": 0.9493530499075785
+      },
+      "expectedCoverage": {
+        "front": 0.669275239762207,
+        "side": 0.7757506100001988,
+        "top": 0.6813079622879983
+      },
+      "minRecall": 0.9493530499075785,
+      "meanRecall": 0.9689238961096786,
+      "minExpectedCoverage": 0.669275239762207,
+      "meanExpectedCoverage": 0.7087779373501347,
+      "score": 6.700623385895778,
+      "active": {
+        "front": {
+          "active": 23414,
+          "total": 65536,
+          "ratio": 0.357269287109375
+        },
+        "side": {
+          "active": 17577,
+          "total": 65536,
+          "ratio": 0.2682037353515625
+        },
+        "top": {
+          "active": 18935,
+          "total": 65536,
+          "ratio": 0.2889251708984375
+        }
+      }
+    },
+    "identity_sign": {
+      "paths": {
+        "front": "img_identity/identity_sign_front.png",
+        "side": "img_identity/identity_sign_side.png",
+        "top": "img_identity/identity_sign_top.png"
+      },
+      "recall": {
+        "front": 0.9557137827158562,
+        "side": 1.0,
+        "top": 0.8461199876755139
+      },
+      "expectedCoverage": {
+        "front": 0.6631234137299313,
+        "side": 0.8080704921226992,
+        "top": 0.6112097892330115
+      },
+      "minRecall": 0.8461199876755139,
+      "meanRecall": 0.9339445901304567,
+      "minExpectedCoverage": 0.6112097892330115,
+      "meanExpectedCoverage": 0.6941345650285474,
+      "score": 6.246510074109383,
+      "active": {
+        "front": {
+          "active": 25561,
+          "total": 65536,
+          "ratio": 0.3900299072265625
+        },
+        "side": {
+          "active": 17185,
+          "total": 65536,
+          "ratio": 0.2622222900390625
+        },
+        "top": {
+          "active": 22719,
+          "total": 65536,
+          "ratio": 0.3466644287109375
+        }
+      }
+    }
+  }
+}
