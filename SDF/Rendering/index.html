@@ -111,13 +111,16 @@ updateReferenceOverlay();
 // Spherical: azimuth (horizontal angle), elevation (vertical angle)
 let lightAz = Math.PI * 0.75;   // ~135° (upper-left)
 let lightEl = Math.PI * 0.3;    // ~54° elevation
+let lightDistance = 3.8;
 const LIGHT_DIR = new THREE.Vector3();
+const LIGHT_POS = new THREE.Vector3();
 function updateLightDir() {
-  LIGHT_DIR.set(
-    Math.cos(lightEl) * Math.sin(lightAz),
-    Math.sin(lightEl),
-    Math.cos(lightEl) * Math.cos(lightAz),
-  ).normalize();
+  LIGHT_POS.set(
+    lightDistance * Math.cos(lightEl) * Math.sin(lightAz),
+    lightDistance * Math.sin(lightEl),
+    lightDistance * Math.cos(lightEl) * Math.cos(lightAz),
+  );
+  LIGHT_DIR.copy(LIGHT_POS).normalize();
 }
 updateLightDir();
 function setLightFromAngles(az, el) {
@@ -125,6 +128,7 @@ function setLightFromAngles(az, el) {
   lightEl = el;
   updateLightDir();
   uniforms.uLightDir.value.copy(LIGHT_DIR);
+  uniforms.uLightPos.value.copy(LIGHT_POS);
 }
 const SHADOW_Y  = -1.3;   // ground plane Y for shadow
 
@@ -141,6 +145,7 @@ const VERT = `
   uniform float uScatter;
   uniform float uFieldReveal;
   uniform vec3  uLightDir;
+  uniform vec3  uLightPos;
   uniform vec3  uCamDir;
   uniform float uPointSize;
   uniform float uDPR;
@@ -177,15 +182,17 @@ const VERT = `
     vTexture = (texF * pF + texS * pS + texT * pT) / total;
 
     vec3 n = normalize(position);
-    float macroDiff = max(dot(n, uLightDir), 0.0);
+    vec3 worldToLight = normalize(uLightPos - position);
+    float macroDiff = max(dot(n, worldToLight), 0.0);
     vLight = mix(0.35, 1.0, macroDiff);
-    vLightViewDir = normalize((viewMatrix * vec4(normalize(uLightDir), 0.0)).xyz);
     float sdfMax = max(max(sdfInfo.x, sdfInfo.y), sdfInfo.z);
     vBoundary = 1.0 - smoothstep(0.00, 0.18, abs(sdfMax));
     vConstraint = sdfInfo.w;
     vCoverageBoost = coverageBoost;
 
     vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
+    vec3 lightViewPos = (viewMatrix * vec4(uLightPos, 1.0)).xyz;
+    vLightViewDir = normalize(lightViewPos - mvPos.xyz);
     float depth = clamp(-mvPos.z, 0.5, 20.0);
     float boost = 1.0 + uCoverageReveal * coverageBoost * 0.42;
     float radiusScale = clamp(pointRadius, 0.55, 2.20);
@@ -253,6 +260,7 @@ const uniforms = {
   uScatter:   { value: 1.0 },
   uFieldReveal: { value: new URLSearchParams(location.search).get('field') === '1' ? 1.0 : 0.0 },
   uLightDir:  { value: LIGHT_DIR },
+  uLightPos:  { value: LIGHT_POS },
   uCamDir:    { value: new THREE.Vector3(0, 0, -1) },
   uPointSize: { value: 6.6 },
   uDPR:       { value: devicePixelRatio },
@@ -274,6 +282,7 @@ const shadowUniforms = {
   uScatter:   uniforms.uScatter,
   uFieldReveal: uniforms.uFieldReveal,
   uLightDir:  uniforms.uLightDir,
+  uLightPos:  uniforms.uLightPos,
   uCamDir:    uniforms.uCamDir,
   uPointSize: uniforms.uPointSize,
   uDPR:       uniforms.uDPR,
@@ -478,6 +487,7 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     updateLightDir();
     uniforms.uLightDir.value.copy(LIGHT_DIR);
+    uniforms.uLightPos.value.copy(LIGHT_POS);
     console.log(`Light: az=${(lightAz*180/Math.PI).toFixed(0)}° el=${(lightEl*180/Math.PI).toFixed(0)}°`);
   }
 });
