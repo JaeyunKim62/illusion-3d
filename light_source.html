@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<!--
+  light_source.html — three.js port of light_source.py (PySide6 + PyOpenGL desktop tool).
+
+  Why this exists: the Python tool uses QOpenGLWidget, which needs an OS display server.
+  On a headless server there is no display, so nothing shows. three.js runs in the browser
+  via WebGL, so it renders anywhere you can open the page (e.g. SSH port-forward).
+
+  Faithful 1:1 port of:
+    - sphere-impostor point cloud shaded as 3D spheres (gl_PointCoord normal)
+    - point light: ambient 0.25 + diffuse + specular(pow 32, 0.4), computed in view space
+    - glowing light-source marker, XYZ axes, light orbit ring, origin->light pointer line
+    - orbit camera (yaw / pitch / distance + pan) with left-drag orbit, right-drag pan, wheel zoom
+    - dark sidebar with synced slider + number-box controls and a Reset button
+
+  Library: three.js r160 (MIT, https://threejs.org) — loaded from jsDelivr CDN. Cite in write-up.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Point Cloud Sphere Renderer (three.js)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: 'Segoe UI', 'Outfit', 'Inter', -apple-system, sans-serif;
+    color: #e2e8f0; background: #0c0c10;
+    display: flex;
+  }
+
+  /* ── Sidebar ───────────────────────────────────────────────── */
+  #sidebar {
+    width: 320px; min-width: 280px; max-width: 360px;
+    height: 100%; overflow-y: auto;
+    background: #13131a; border-right: 1px solid #23232f;
+    padding: 20px 15px; display: flex; flex-direction: column; gap: 10px;
+  }
+  #sidebar::-webkit-scrollbar { width: 8px; }
+  #sidebar::-webkit-scrollbar-thumb { background: #27273a; border-radius: 4px; }
+
+  .title { font-size: 18px; font-weight: bold; color: #fff; }
+  .subtitle { font-size: 11px; color: #64748b; margin-bottom: 8px; }
+
+  .group {
+    border: 1px solid #23232f; border-radius: 8px;
+    background: #171721; padding: 14px 12px 12px; margin-top: 6px;
+  }
+  .group > .legend {
+    font-weight: bold; font-size: 13px; color: #8f9bff;
+    margin: -22px 0 8px 4px; background: #171721; display: inline-block; padding: 0 5px;
+  }
+
+  .row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .row label { font-size: 12px; color: #94a3b8; }
+  .row input[type=number] {
+    width: 78px; background: #0c0c10; color: #f8fafc;
+    border: 1px solid #23232f; border-radius: 5px; padding: 3px 6px; font-size: 11px;
+  }
+  .row input[type=number]:focus { outline: none; border-color: #4f46e5; }
+  input[type=range] {
+    grid-column: 1 / -1; width: 100%; margin: 2px 0 8px; height: 4px;
+    -webkit-appearance: none; background: #27273a; border-radius: 2px;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px; border-radius: 7px;
+    background: linear-gradient(135deg, #8f9bff, #4f46e5); cursor: pointer;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 14px; height: 14px; border: none; border-radius: 7px;
+    background: linear-gradient(135deg, #8f9bff, #4f46e5); cursor: pointer;
+  }
+
+  .info { font-size: 12px; color: #94a3b8; line-height: 1.7; }
+
+  button#reset {
+    margin-top: auto; padding: 9px 12px; font-size: 12px; font-weight: bold;
+    color: #fca5a5; background: #1c1c2b; border: 1px solid #ef4444;
+    border-radius: 6px; cursor: pointer;
+  }
+  button#reset:hover { background: #2d1a1a; }
+
+  /* ── Viewport ──────────────────────────────────────────────── */
+  #view { flex: 1; height: 100%; position: relative; }
+  #view canvas { display: block; }
+</style>
+</head>
+<body>
+  <div id="sidebar">
+    <div class="title">ILLUSION 3D</div>
+    <div class="subtitle">3D Point Cloud Shader Tool · three.js</div>
+
+    <div class="group">
+      <span class="legend">Point Cloud Settings</span>
+      <div class="row"><label>Sphere Size</label><input type="number" id="sizeNum" step="0.0005" min="0" max="1"></div>
+      <input type="range" id="sizeRange" min="1" max="200">
+      <div class="row"><label>Hue</label><input type="number" id="hueNum" step="0.05" min="0" max="1"></div>
+      <input type="range" id="hueRange" min="0" max="100">
+      <div class="row"><label>Sample Count</label><input type="number" id="sampleNum" step="500" min="100"></div>
+      <input type="range" id="sampleRange" min="100">
+    </div>
+
+    <div class="group">
+      <span class="legend">Light Position (Orbit)</span>
+      <div class="row"><label>Light Distance</label><input type="number" id="ldistNum" step="0.2"></div>
+      <input type="range" id="ldistRange" min="10" max="1000">
+      <div class="row"><label>Azimuth (Horiz)</label><input type="number" id="lazNum" step="5" min="-180" max="180"></div>
+      <input type="range" id="lazRange" min="-180" max="180">
+      <div class="row"><label>Elevation (Vert)</label><input type="number" id="lelNum" step="5" min="-90" max="90"></div>
+      <input type="range" id="lelRange" min="-90" max="90">
+    </div>
+
+    <div class="group">
+      <span class="legend">Camera Angles &amp; Zoom</span>
+      <div class="row"><label>Yaw (Rotate H)</label><input type="number" id="yawNum" step="5" min="-180" max="180"></div>
+      <input type="range" id="yawRange" min="-180" max="180">
+      <div class="row"><label>Pitch (Rotate V)</label><input type="number" id="pitchNum" step="5" min="-89" max="89"></div>
+      <input type="range" id="pitchRange" min="-89" max="89">
+      <div class="row"><label>Camera Distance</label><input type="number" id="cdistNum" step="0.2"></div>
+      <input type="range" id="cdistRange" min="10" max="1500">
+    </div>
+
+    <div class="group">
+      <span class="legend">Dataset Details</span>
+      <div class="info" id="datasetInfo">Loading…</div>
+    </div>
+
+    <button id="reset">Reset View</button>
+  </div>
+
+  <div id="view"></div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+// ── Renderer / scene / camera ───────────────────────────────────────────────
+const viewEl = document.getElementById('view');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setClearColor(0x141420, 1.0);   // matches glClearColor(0.08,0.08,0.12)
+viewEl.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+
+// PerspectiveCamera(fov 45, near 0.1, far 100) — matches perspective_matrix(45,...).
+// We drive the view matrix manually (orbit yaw/pitch/distance + pan), so disable
+// three's automatic world-matrix update and set the matrices ourselves each frame.
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+camera.matrixAutoUpdate = false;
+camera.matrixWorldAutoUpdate = false;
+
+// ── Interactive state (mirrors PointCloudWidget defaults) ────────────────────
+const state = {
+  pointSize: 0.0026,
+  pointColor: new THREE.Color(0.3, 0.6, 1.0),
+  lightDist: 1.2429, lightAz: 58, lightEl: 49,      // degrees
+  yaw: -45, pitch: 30, distance: 2.5,
+  panX: 0, panY: 0,
+  sampleCount: 0,
+};
+let scale = 1.0;            // normalization radius (max distance from centroid)
+let center = new THREE.Vector3();
+const lightWorld = new THREE.Vector3(2, 2, 2);
+
+// ── Shaders (ported from light_source.py GLSL) ───────────────────────────────
+// renderMode 0: lit point-cloud sphere · 1: glowing light · 2: flat emissive line
+const VERT = `
+  uniform float uPointSize;       // sphere diameter in world units
+  uniform float uViewportHeight;  // backing-store height in pixels
+  varying vec3 vViewPos;
+  void main() {
+    vec4 viewPos = modelViewMatrix * vec4(position, 1.0);
+    vViewPos = viewPos.xyz;
+    gl_Position = projectionMatrix * viewPos;
+    float dist = max(-viewPos.z, 0.001);
+    gl_PointSize = (uPointSize * projectionMatrix[1][1] * uViewportHeight) / dist;
+    if (gl_PointSize < 1.0) gl_PointSize = 1.0;
+  }
+`;
+
+const FRAG = `
+  uniform vec3 uLightPos;      // light position in VIEW space
+  uniform vec3 uPointColor;
+  uniform int  uRenderMode;
+  varying vec3 vViewPos;
+  void main() {
+    if (uRenderMode == 2) {                     // emissive helper line
+      gl_FragColor = vec4(uPointColor, 1.0);
+      return;
+    }
+    vec2 nc = gl_PointCoord * 2.0 - 1.0;
+    float r2 = dot(nc, nc);
+    if (r2 > 1.0) discard;                       // circular silhouette
+    float z = sqrt(1.0 - r2);
+    vec3 normal = normalize(vec3(nc.x, -nc.y, z));
+
+    if (uRenderMode == 1) {                       // glowing light source
+      float centerGlow = pow(1.0 - r2, 2.0);
+      vec3 glow = mix(vec3(1.0, 0.95, 0.5), vec3(1.0), centerGlow);
+      gl_FragColor = vec4(glow, 1.0);
+      return;
+    }
+
+    vec3 L = normalize(uLightPos - vViewPos);     // lit point cloud (mode 0)
+    float ambient = 0.25;
+    float diffuse = max(dot(normal, L), 0.0);
+    vec3 V = normalize(-vViewPos);
+    vec3 R = reflect(-L, normal);
+    float spec = pow(max(dot(R, V), 0.0), 32.0) * 0.4;
+    vec3 col = uPointColor * (ambient + diffuse) + vec3(spec);
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
+const uniforms = {
+  uPointSize:      { value: state.pointSize },
+  uViewportHeight: { value: 600 },
+  uLightPos:       { value: new THREE.Vector3() },   // view space, updated per frame
+  uPointColor:     { value: new THREE.Color() },
+  uRenderMode:     { value: 0 },
+};
+const cloudMat = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT, fragmentShader: FRAG });
+
+// ── Scene objects ────────────────────────────────────────────────────────────
+let cloud = null;                 // THREE.Points (lit point cloud)
+let allPositions = null;          // Float32Array of every centered point
+let shuffledIndices = null;       // random permutation for sampling
+
+// Glowing light marker: a single GL_POINTS vertex, drawn with the glow shader.
+const lightGeo = new THREE.BufferGeometry();
+lightGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3), 3));
+const lightMat = cloudMat.clone();
+lightMat.uniforms = Object.assign({}, uniforms, { uRenderMode: { value: 1 }, uPointSize: { value: state.pointSize * 2 } });
+const lightMarker = new THREE.Points(lightGeo, lightMat);
+lightMarker.frustumCulled = false;
+scene.add(lightMarker);
+
+// Flat emissive line material (renderMode 2). Color set per draw via vertex colors.
+const lineMat = new THREE.LineBasicMaterial({ vertexColors: true });
+
+function makeLine(pts, color) {
+  const g = new THREE.BufferGeometry().setFromPoints(pts);
+  const cols = new Float32Array(pts.length * 3);
+  for (let i = 0; i < pts.length; i++) { cols[i*3]=color.r; cols[i*3+1]=color.g; cols[i*3+2]=color.b; }
+  g.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  return g;
+}
+
+// XYZ axes (rebuilt once scale is known)
+let axesGroup = new THREE.Group();
+scene.add(axesGroup);
+function buildAxes() {
+  axesGroup.clear();
+  const s = 1.5 * scale;
+  const defs = [
+    [new THREE.Vector3(-s,0,0), new THREE.Vector3(s,0,0), new THREE.Color(0.9,0.3,0.3)],
+    [new THREE.Vector3(0,-s,0), new THREE.Vector3(0,s,0), new THREE.Color(0.3,0.9,0.3)],
+    [new THREE.Vector3(0,0,-s), new THREE.Vector3(0,0,s), new THREE.Color(0.3,0.3,0.9)],
+  ];
+  for (const [a,b,c] of defs) axesGroup.add(new THREE.LineSegments(makeLine([a,b], c), lineMat));
+}
+
+// Light orbit ring (LineLoop) + origin->light pointer line — rebuilt when light moves.
+let orbitRing = null, pointerLine = null;
+function buildLightHelpers() {
+  if (orbitRing) { scene.remove(orbitRing); orbitRing.geometry.dispose(); }
+  if (pointerLine) { scene.remove(pointerLine); pointerLine.geometry.dispose(); }
+
+  const r = lightWorld.length();
+  const y = lightWorld.y;
+  const hR = Math.sqrt(Math.max(r*r - y*y, 0));
+  const ringPts = [];
+  for (let i = 0; i < 64; i++) {
+    const a = (i / 64) * Math.PI * 2;
+    ringPts.push(new THREE.Vector3(hR * Math.sin(a), y, hR * Math.cos(a)));
+  }
+  orbitRing = new THREE.LineLoop(makeLine(ringPts, new THREE.Color(0.8,0.8,0.4)), lineMat);
+  scene.add(orbitRing);
+
+  pointerLine = new THREE.LineSegments(
+    makeLine([new THREE.Vector3(0,0,0), lightWorld.clone()], new THREE.Color(1.0,1.0,0.5)), lineMat);
+  scene.add(pointerLine);
+}
+
+// ── View matrix (orbit camera, identical math to light_source.py) ────────────
+// V_std = T(panX, panY, -distance) · Rx(pitch) · Ry(yaw)
+const _V = new THREE.Matrix4();
+const _T = new THREE.Matrix4();
+const _Rx = new THREE.Matrix4();
+const _Ry = new THREE.Matrix4();
+function updateCameraMatrices() {
+  _T.makeTranslation(state.panX, state.panY, -state.distance);
+  _Rx.makeRotationX(THREE.MathUtils.degToRad(state.pitch));
+  _Ry.makeRotationY(THREE.MathUtils.degToRad(state.yaw));
+  _V.copy(_T).multiply(_Rx).multiply(_Ry);          // world -> view
+  camera.matrixWorldInverse.copy(_V);
+  camera.matrixWorld.copy(_V).invert();
+  camera.matrix.copy(camera.matrixWorld);
+}
+
+// ── Light position from spherical coords ─────────────────────────────────────
+function updateLightFromAngles() {
+  const r = state.lightDist;
+  const az = THREE.MathUtils.degToRad(state.lightAz);
+  const el = THREE.MathUtils.degToRad(state.lightEl);
+  lightWorld.set(
+    r * Math.cos(el) * Math.sin(az),
+    r * Math.sin(el),
+    r * Math.cos(el) * Math.cos(az),
+  );
+  lightGeo.attributes.position.setXYZ(0, lightWorld.x, lightWorld.y, lightWorld.z);
+  lightGeo.attributes.position.needsUpdate = true;
+  buildLightHelpers();
+}
+
+// ── Sampling (random subset of points) ───────────────────────────────────────
+function applySampling() {
+  if (!allPositions) return;
+  const count = state.sampleCount;
+  const sub = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const idx = shuffledIndices[i];
+    sub[i*3] = allPositions[idx*3];
+    sub[i*3+1] = allPositions[idx*3+1];
+    sub[i*3+2] = allPositions[idx*3+2];
+  }
+  if (cloud) { scene.remove(cloud); cloud.geometry.dispose(); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(sub, 3));
+  g.frustumCulled = false;
+  cloud = new THREE.Points(g, cloudMat);
+  cloud.frustumCulled = false;
+  scene.add(cloud);
+  setText('datasetInfo',
+    `Total Points: ${count}<br>Center: (${center.x.toFixed(2)}, ${center.y.toFixed(2)}, ${center.z.toFixed(2)})`);
+}
+
+// ── HSV -> RGB (matches MainWindow.hsv_to_rgb) ───────────────────────────────
+function hsvToRgb(h, s, v) {
+  if (s === 0) return [v, v, v];
+  const i = Math.floor(h * 6), f = h * 6 - i;
+  const p = v*(1-s), q = v*(1-s*f), t = v*(1-s*(1-f));
+  switch (((i % 6) + 6) % 6) {
+    case 0: return [v,t,p]; case 1: return [q,v,p]; case 2: return [p,v,t];
+    case 3: return [p,q,v]; case 4: return [t,p,v]; default: return [v,p,q];
+  }
+}
+
+// ── Render loop ──────────────────────────────────────────────────────────────
+function tick() {
+  requestAnimationFrame(tick);
+  updateCameraMatrices();
+
+  // Light position transformed into view space for the lighting shader.
+  uniforms.uLightPos.value.copy(lightWorld).applyMatrix4(camera.matrixWorldInverse);
+  uniforms.uViewportHeight.value = renderer.domElement.height;
+  uniforms.uPointColor.value.copy(state.pointColor);
+  uniforms.uPointSize.value = state.pointSize;
+  lightMat.uniforms.uPointSize.value = state.pointSize * 2;
+
+  renderer.render(scene, camera);
+}
+
+// ── Load point cloud (centers on centroid; scale = max distance) ─────────────
+const params = new URLSearchParams(location.search);
+const dataPath = params.get('points') || 'data/points-sdf.json';
+fetch(dataPath)
+  .then(r => r.json())
+  .then(data => {
+    const pts = data.points;
+    const n = pts.length;
+    center.set(0, 0, 0);
+    for (let i = 0; i < n; i++) { center.x += pts[i][0]; center.y += pts[i][1]; center.z += pts[i][2]; }
+    center.multiplyScalar(1 / n);
+
+    allPositions = new Float32Array(n * 3);
+    let maxDist = 0;
+    for (let i = 0; i < n; i++) {
+      const x = pts[i][0]-center.x, y = pts[i][1]-center.y, z = pts[i][2]-center.z;
+      allPositions[i*3]=x; allPositions[i*3+1]=y; allPositions[i*3+2]=z;
+      const d = Math.hypot(x, y, z); if (d > maxDist) maxDist = d;
+    }
+    scale = maxDist > 0 ? maxDist : 1.0;
+
+    // random permutation (Fisher–Yates) for the Sample Count control
+    shuffledIndices = new Uint32Array(n);
+    for (let i = 0; i < n; i++) shuffledIndices[i] = i;
+    for (let i = n - 1; i > 0; i--) { const j = (Math.random()*(i+1))|0; const t=shuffledIndices[i]; shuffledIndices[i]=shuffledIndices[j]; shuffledIndices[j]=t; }
+
+    buildAxes();
+    initControlRanges(n);
+    resetToDefaults();
+    onResize();
+    tick();
+  })
+  .catch(err => {
+    console.error(err);
+    setText('datasetInfo', `<span style="color:#f87171">${dataPath} not found or invalid.</span>`);
+  });
+
+// ── Sidebar controls (slider <-> number-box sync) ────────────────────────────
+const $ = id => document.getElementById(id);
+function setText(id, html) { $(id).innerHTML = html; }
+
+// link a {range, number} pair to a setter; `toRange`/`fromRange` map real<->slider int
+function linkPair(rangeId, numId, get, set, toRange, fromRange) {
+  const rng = $(rangeId), num = $(numId);
+  const sync = (real, fromRangeEvent) => {
+    set(real);
+    if (!fromRangeEvent) rng.value = Math.round(toRange(real));
+    num.value = Number.isInteger(real) ? real : +real.toFixed(4);
+  };
+  rng.addEventListener('input', () => sync(fromRange(+rng.value), true));
+  num.addEventListener('input', () => { if (num.value !== '') sync(+num.value, false); });
+  return { set: real => sync(real, false) };
+}
+
+let ctl = {};
+function initControlRanges(n) {
+  $('sampleRange').max = n; $('sampleNum').max = n;
+  $('ldistNum').min = 0.1 * scale; $('ldistNum').max = 10 * scale;
+  $('cdistNum').min = 0.1 * scale; $('cdistNum').max = 15 * scale;
+  $('sizeNum').max = 0.2 * scale; $('sizeNum').min = 0.001 * scale;
+
+  ctl.size = linkPair('sizeRange', 'sizeNum',
+    () => state.pointSize, v => { state.pointSize = v; },
+    v => (v / scale) * 1000, v => (v / 1000) * scale);
+
+  ctl.hue = linkPair('hueRange', 'hueNum',
+    () => 0, v => { const [r,g,b] = hsvToRgb(v, 0.75, 0.95); state.pointColor.setRGB(r,g,b); },
+    v => v * 100, v => v / 100);
+
+  ctl.sample = linkPair('sampleRange', 'sampleNum',
+    () => state.sampleCount, v => { state.sampleCount = Math.round(v); applySampling(); },
+    v => v, v => v);
+
+  ctl.ldist = linkPair('ldistRange', 'ldistNum',
+    () => state.lightDist, v => { state.lightDist = v; updateLightFromAngles(); },
+    v => (v / scale) * 100, v => (v / 100) * scale);
+  ctl.laz = linkPair('lazRange', 'lazNum',
+    () => state.lightAz, v => { state.lightAz = v; updateLightFromAngles(); }, v => v, v => v);
+  ctl.lel = linkPair('lelRange', 'lelNum',
+    () => state.lightEl, v => { state.lightEl = v; updateLightFromAngles(); }, v => v, v => v);
+
+  ctl.yaw = linkPair('yawRange', 'yawNum',
+    () => state.yaw, v => { state.yaw = v; }, v => v, v => v);
+  ctl.pitch = linkPair('pitchRange', 'pitchNum',
+    () => state.pitch, v => { state.pitch = v; }, v => v, v => v);
+  ctl.cdist = linkPair('cdistRange', 'cdistNum',
+    () => state.distance, v => { state.distance = v; },
+    v => (v / scale) * 100, v => (v / 100) * scale);
+}
+
+function resetToDefaults() {
+  ctl.size.set(0.0026);
+  ctl.hue.set(0.55);
+  ctl.sample.set(allPositions.length / 3);
+  ctl.ldist.set(1.2429); ctl.laz.set(58); ctl.lel.set(49);
+  state.panX = 0; state.panY = 0;
+  ctl.yaw.set(-45); ctl.pitch.set(30); ctl.cdist.set(2.5 * scale);
+}
+$('reset').addEventListener('click', resetToDefaults);
+
+// keep camera-angle sliders in sync when the user drags in the 3D viewport
+function syncCameraControls() {
+  const normYaw = ((state.yaw + 180) % 360 + 360) % 360 - 180;
+  state.yaw = normYaw;
+  ctl.yaw.set(normYaw); ctl.pitch.set(state.pitch); ctl.cdist.set(state.distance);
+}
+
+// ── Mouse interaction (left: orbit · right: pan · wheel: zoom) ────────────────
+const canvas = renderer.domElement;
+let lastX = 0, lastY = 0, dragBtn = -1;
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('mousedown', e => { dragBtn = e.button; lastX = e.clientX; lastY = e.clientY; });
+window.addEventListener('mouseup', () => { dragBtn = -1; });
+window.addEventListener('mousemove', e => {
+  if (dragBtn < 0) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  if (dragBtn === 0) {                              // orbit
+    state.yaw += dx * 0.4;
+    state.pitch = Math.max(-89, Math.min(89, state.pitch + dy * 0.4));
+    syncCameraControls();
+  } else if (dragBtn === 2) {                       // pan
+    const f = 0.003 * state.distance;
+    state.panX += dx * f; state.panY -= dy * f;
+  }
+});
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const zoom = 0.05 * state.distance;
+  state.distance = e.deltaY < 0 ? Math.max(0.2, state.distance - zoom) : Math.min(20, state.distance + zoom);
+  ctl.cdist.set(state.distance);
+}, { passive: false });
+
+// ── Resize ───────────────────────────────────────────────────────────────────
+function onResize() {
+  const w = viewEl.clientWidth, h = viewEl.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', onResize);
+</script>
+</body>
+</html>
