@@ -9,9 +9,9 @@ python train_sdf.py \
   --front ${FIRST_IMAGE} \
   --side ${SECOND_IMAGE} \
   --top ${THIRD_IMAGE} \
-  --iters 5000 \
+  --iters 10000 \
   --hidden 256 \
-  --layers 3 \
+  --layers 5 \
   --lr 1e-4 \
   --n 30000 \
   --surface-ratio 0.45 \
