@@ -1,0 +1,77 @@
+{
+  "schema": "sdf-projection-metrics/v1",
+  "pointCloud": {
+    "points": 30000,
+    "source": "data/points-sdf-annotated.json"
+  },
+  "projectionDefinition": {
+    "front": "(x,y)",
+    "side": "(z,y)",
+    "top": "(x,z)"
+  },
+  "metrics": {
+    "front": {
+      "targetActive": 10557,
+      "projectedActive": 6428,
+      "intersection": 6251,
+      "missing": 4306,
+      "leakage": 177,
+      "recall": 0.592118973193142,
+      "precision": 0.9724642190416926,
+      "iou": 0.5823551332215391,
+      "leakageRatio": 0.027535780958307405,
+      "missingRatio": 0.407881026806858
+    },
+    "side": {
+      "targetActive": 22076,
+      "projectedActive": 11566,
+      "intersection": 11454,
+      "missing": 10622,
+      "leakage": 112,
+      "recall": 0.5188439934770792,
+      "precision": 0.9903164447518589,
+      "iou": 0.5162249864791779,
+      "leakageRatio": 0.009683555248141103,
+      "missingRatio": 0.48115600652292084
+    },
+    "top": {
+      "targetActive": 12138,
+      "projectedActive": 9962,
+      "intersection": 9785,
+      "missing": 2353,
+      "leakage": 177,
+      "recall": 0.8061459878068875,
+      "precision": 0.9822324834370608,
+      "iou": 0.7945594803085668,
+      "leakageRatio": 0.017767516562939168,
+      "missingRatio": 0.19385401219311255
+    }
+  },
+  "sdfValidity": {
+    "hasSdfMax": true,
+    "positiveSdfCount": 1117,
+    "positiveSdfRatio": 0.037233333333333334,
+    "maxPositiveSdf": 0.015625,
+    "meanSdfMax": -0.03373456746339798
+  },
+  "activeConstraintDistribution": {
+    "front": {
+      "count": 13091,
+      "ratio": 0.4363666666666667
+    },
+    "side": {
+      "count": 9042,
+      "ratio": 0.3014
+    },
+    "top": {
+      "count": 7867,
+      "ratio": 0.2622333333333333
+    }
+  },
+  "summary": {
+    "minRecall": 0.5188439934770792,
+    "minPrecision": 0.9724642190416926,
+    "maxLeakageRatio": 0.027535780958307405,
+    "meanIoU": 0.6310465333364279
+  }
+}

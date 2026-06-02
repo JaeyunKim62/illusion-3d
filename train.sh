@@ -1,5 +1,5 @@
 source ~/miniconda3/bin/activate
-conda activate rendering
+conda activate render
 
 pip install -r requirements.txt
 
@@ -19,14 +19,14 @@ python train_sdf.py \
   --surface-ratio 0.45 \
   --device cuda \
   --retrain \
-  --output data/points-sdf.json
+  --output data/points.json
 
 
 python annotate_sdf_points.py \
   --front ${FIRST_IMAGE} \
   --side ${SECOND_IMAGE} \
   --top ${THIRD_IMAGE} \
-  --points data/points-sdf.json \
+  --points data/points.json \
   --output data/points-sdf-annotated.json
 
 python evaluate_projection_metrics.py \

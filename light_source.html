@@ -367,7 +367,7 @@ function tick() {
 
 // ── Load point cloud (centers on centroid; scale = max distance) ─────────────
 const params = new URLSearchParams(location.search);
-const dataPath = params.get('points') || 'data/points-sdf.json';
+const dataPath = params.get('points') || 'data/points.json';
 fetch(dataPath)
   .then(r => r.json())
   .then(data => {
