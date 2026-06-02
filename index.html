@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Anamorphic Point Cloud</title>
+  <title>Point Cloud</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #f0f0f0; overflow: hidden; }
@@ -315,7 +315,7 @@ let scatterCurrent = 0.0;
 let lastTime = performance.now();
 
 // ── Load points ────────────────────────────────────────────────────────────────
-const pointCloudPath = params.get('points') || 'data/points-sdf.json';
+const pointCloudPath = params.get('points') || 'data/points-windmill-airplane-tower.json';
 
 fetch(pointCloudPath)
   .then(r => r.json())

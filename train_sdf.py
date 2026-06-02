@@ -201,10 +201,27 @@ def compute_bbox(masks: list[np.ndarray], pad: float = 0.05):
     return lo, hi
 
 
+def _eval_sdf_batched(model_f, model_s, model_t, xyz, batch=50_000):
+    """Evaluate max(f_front, f_side, f_top) for a large set of xyz points."""
+    x, y, z = xyz[:, 0], xyz[:, 1], xyz[:, 2]
+    d_parts = []
+    for i in range(0, len(x), batch):
+        sl = slice(i, i + batch)
+        fa = model_f(torch.stack([x[sl], y[sl]], dim=1))
+        fb = model_s(torch.stack([z[sl], y[sl]], dim=1))
+        fc = model_t(torch.stack([x[sl], z[sl]], dim=1))
+        d_parts.append(torch.maximum(torch.maximum(fa, fb), fc))
+    return torch.cat(d_parts)
+
+
 @torch.no_grad()
 def rejection_sample(models, masks, n_points, sharpness, surface_ratio, device):
     """Collect 3D points inside the learned SDF intersection.
-    Uses mask bounding box to avoid sampling in empty space."""
+
+    Two-stage strategy:
+      1. Evaluate SDFs on a coarse 3D grid → keep only occupied voxels (d <= margin).
+      2. Sample jittered proposals *within* those voxels → near-100% accept rate.
+    """
     model_f, model_s, model_t = models
     lo, hi = compute_bbox(masks)
     vol = np.prod(hi - lo)
@@ -212,9 +229,31 @@ def rejection_sample(models, masks, n_points, sharpness, surface_ratio, device):
           f"y[{lo[1]:.2f},{hi[1]:.2f}] z[{lo[2]:.2f},{hi[2]:.2f}]  "
           f"(vol={vol:.3f} vs 8.000)")
 
-    lo_t = torch.tensor(lo, device=device)
-    hi_t = torch.tensor(hi, device=device)
+    # ── Stage 1: coarse grid pre-filter ────────────────────────────────────────
+    grid_res = 64
+    xs = torch.linspace(float(lo[0]), float(hi[0]), grid_res, device=device)
+    ys = torch.linspace(float(lo[1]), float(hi[1]), grid_res, device=device)
+    zs = torch.linspace(float(lo[2]), float(hi[2]), grid_res, device=device)
+    gx, gy, gz = torch.meshgrid(xs, ys, zs, indexing="ij")
+    grid_xyz = torch.stack([gx.flatten(), gy.flatten(), gz.flatten()], dim=1)
 
+    d_grid = _eval_sdf_batched(model_f, model_s, model_t, grid_xyz)
+
+    # Use a small positive margin so surface points near d≈0 aren't missed
+    surface_margin = (hi - lo).max() / grid_res * 1.5
+    occ_mask = d_grid <= surface_margin
+    occ_idx  = torch.where(occ_mask)[0]
+    occ_frac = len(occ_idx) / grid_res ** 3 * 100
+    print(f"  Coarse grid ({grid_res}³): {len(occ_idx)} / {grid_res**3} voxels "
+          f"occupied ({occ_frac:.1f}%)  → sampling inside these only")
+
+    if len(occ_idx) == 0:
+        raise RuntimeError("No occupied voxels found — check SDF training or input masks.")
+
+    occ_centers = grid_xyz[occ_idx].cpu().numpy()       # (K, 3)
+    vox_half = (hi - lo) / grid_res / 2.0               # half-voxel size per axis
+
+    # ── Stage 2: jittered sampling inside occupied voxels ───────────────────────
     n_surface  = int(n_points * surface_ratio)
     n_interior = n_points - n_surface
     batch = 100_000
@@ -225,17 +264,16 @@ def rejection_sample(models, masks, n_points, sharpness, surface_ratio, device):
         n_got = 0
         total_sampled = 0
         while n_got < target:
-            # Sample within bounding box only
-            xyz = torch.rand(batch, 3, device=device) * (hi_t - lo_t) + lo_t
-            x, y, z = xyz[:, 0], xyz[:, 1], xyz[:, 2]
+            # Draw random occupied voxels, then jitter uniformly within each
+            vi  = np.random.randint(0, len(occ_centers), size=batch)
+            jit = np.random.uniform(-1, 1, size=(batch, 3)) * vox_half
+            xyz_np = occ_centers[vi] + jit
+            xyz = torch.tensor(xyz_np, dtype=torch.float32, device=device)
 
-            fa = model_f(torch.stack([x, y], dim=1))
-            fb = model_s(torch.stack([z, y], dim=1))
-            fc = model_t(torch.stack([x, z], dim=1))
-            d  = torch.maximum(torch.maximum(fa, fb), fc)
+            d = _eval_sdf_batched(model_f, model_s, model_t, xyz)
 
             if phase == "surface":
-                accept = (d <= 0) & (torch.rand(batch, device=device) < torch.exp(sharpness * d))
+                accept = (d <= 0) & (torch.rand(len(d), device=device) < torch.exp(sharpness * d))
             else:
                 accept = d <= 0
 

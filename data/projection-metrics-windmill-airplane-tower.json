@@ -1,0 +1,77 @@
+{
+  "schema": "sdf-projection-metrics/v1",
+  "pointCloud": {
+    "points": 30000,
+    "source": "data/points-windmill-airplane-tower-sdf.json"
+  },
+  "projectionDefinition": {
+    "front": "(x,y)",
+    "side": "(z,y)",
+    "top": "(x,z)"
+  },
+  "metrics": {
+    "front": {
+      "targetActive": 10557,
+      "projectedActive": 6430,
+      "intersection": 6252,
+      "missing": 4305,
+      "leakage": 178,
+      "recall": 0.5922136970730321,
+      "precision": 0.9723172628304821,
+      "iou": 0.5823940381928272,
+      "leakageRatio": 0.027682737169517885,
+      "missingRatio": 0.4077863029269679
+    },
+    "side": {
+      "targetActive": 22076,
+      "projectedActive": 11506,
+      "intersection": 11396,
+      "missing": 10680,
+      "leakage": 110,
+      "recall": 0.5162167059249864,
+      "precision": 0.9904397705544933,
+      "iou": 0.5136572613359777,
+      "leakageRatio": 0.009560229445506692,
+      "missingRatio": 0.4837832940750136
+    },
+    "top": {
+      "targetActive": 12138,
+      "projectedActive": 9882,
+      "intersection": 9703,
+      "missing": 2435,
+      "leakage": 179,
+      "recall": 0.7993903443730433,
+      "precision": 0.981886257842542,
+      "iou": 0.7877729966712673,
+      "leakageRatio": 0.018113742157458004,
+      "missingRatio": 0.20060965562695668
+    }
+  },
+  "sdfValidity": {
+    "hasSdfMax": true,
+    "positiveSdfCount": 1107,
+    "positiveSdfRatio": 0.0369,
+    "maxPositiveSdf": 0.02209700085222721,
+    "meanSdfMax": -0.03405288979411125
+  },
+  "activeConstraintDistribution": {
+    "front": {
+      "count": 13057,
+      "ratio": 0.43523333333333336
+    },
+    "side": {
+      "count": 9087,
+      "ratio": 0.3029
+    },
+    "top": {
+      "count": 7856,
+      "ratio": 0.2618666666666667
+    }
+  },
+  "summary": {
+    "minRecall": 0.5162167059249864,
+    "minPrecision": 0.9723172628304821,
+    "maxLeakageRatio": 0.027682737169517885,
+    "meanIoU": 0.6279414320666907
+  }
+}
