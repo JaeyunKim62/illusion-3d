@@ -64,9 +64,9 @@ camera.matrixWorldAutoUpdate = false;
 
 // ── State (driven by the timeline) ───────────────────────────────────────────
 const state = {
-  pointSize: 0.0026,
+  pointSize: 0.003,
   pointColor: new THREE.Color(0.4, 0.8, 0.7),
-  yaw: 0, pitch: 0, distance: 3,
+  yaw: 0, pitch: 0, distance: 10,
   lightAz: -180,                                   // animated: slow horizontal orbit
 };
 const lightWorld = new THREE.Vector3();
@@ -75,8 +75,8 @@ const LIGHT_MARKER_SIZE = 0.06;                    // visible glowing light, wor
 // World-space light: fixed orbit radius + elevation, only the azimuth animates, so the
 // light slowly circles the object on its own — independent of the camera. This sweeps
 // the shading / specular highlight across the object and gives the light a clear role.
-const LIGHT_DIST     = 1;    // orbit radius (world units) — bump up if the marker looks buried
-const LIGHT_EL       = 0;     // fixed elevation (deg)
+const LIGHT_DIST     = 2.2;    // orbit radius (world units) — bump up if the marker looks buried
+const LIGHT_EL       = 40;     // fixed elevation (deg)
 const LIGHT_AZ_START = 0;   // starting azimuth (deg) — the initial light position
 const LIGHT_AZ_RATE  = 120;     // deg/sec — slow horizontal orbit (300° over the 10s clip)
 
@@ -186,9 +186,9 @@ function track(keys, t) {
   return v0 + (v1 - v0) * smooth((t - t0) / (t1 - t0));
 }
 
-const YAW_KEYS   = [[0,0],[1.0,0],[3.0,-90],[3.8,-90],[5.5,-181],[6.3,-181],[7.8,-45],[10,-45]];  // front → side(+X) → tower top → 3/4
-const PITCH_KEYS = [[0,0],[1.0,0],[3.0,0],[3.8,0],[5.5,89],[6.3,89],[7.8,30],[10,30]];            // tower top: pitch 89
-const DIST_KEYS  = [[0,3],[8,3],[10,0.128]];                                                      // hold, then dolly-in reveal
+const YAW_KEYS   = [[0,0],[1.0,0],[3.0,-90],[3.8,-90],[5.5,-180],[6.3,-18],[7.8,-45],[10,-131.6]];  // front → side(+X) → tower top → 3/4
+const PITCH_KEYS = [[0,0],[1.0,0],[3.0,0],[3.8,0],[5.5,90],[6.3,90],[7.8,30],[10,63]];            // tower top: pitch 89
+const DIST_KEYS  = [[0,10],[8,10],[10,0.128]];                                                      // hold, then dolly-in reveal
 
 function applyState(t) {
   state.lightAz  = LIGHT_AZ_START + LIGHT_AZ_RATE * t;   // slow horizontal orbit, independent of view
