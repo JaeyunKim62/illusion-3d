@@ -18,68 +18,68 @@
   "metrics": {
     "front": {
       "targetActive": 30997,
-      "projectedActive": 12823,
-      "intersection": 12795,
-      "missing": 18202,
-      "leakage": 28,
-      "recall": 0.4127818821176243,
-      "precision": 0.997816423613819,
-      "iou": 0.41240934730056406,
-      "leakageRatio": 0.002183576386181081,
-      "missingRatio": 0.5872181178823758,
+      "projectedActive": 12830,
+      "intersection": 12788,
+      "missing": 18209,
+      "leakage": 42,
+      "recall": 0.4125560538116592,
+      "precision": 0.996726422447389,
+      "iou": 0.41199780920777085,
+      "leakageRatio": 0.0032735775526110678,
+      "missingRatio": 0.5874439461883408,
       "density": {
-        "mean": 0.9667064554634319,
+        "mean": 0.966125754105236,
         "median": 0.0,
         "p10": 0.0,
         "p90": 3.0,
-        "max": 10,
-        "emptyTargetRatio": 0.5872181178823758,
-        "overdrawRatio": 0.5730018354747205
+        "max": 11,
+        "emptyTargetRatio": 0.5874439461883408,
+        "overdrawRatio": 0.5729789294420142
       },
       "boundary": {
         "missingDistance": {
-          "meanPx": 16.75766962573872,
-          "medianPx": 11.0,
-          "p95Px": 54.3323108288245,
-          "maxPx": 79.51100552753688
+          "meanPx": 16.626184130284503,
+          "medianPx": 10.44030650891055,
+          "p95Px": 54.74486277268398,
+          "maxPx": 79.90619500389191
         },
         "leakageDistance": {
-          "meanPx": 1.0147933415133248,
+          "meanPx": 1.0394489107021996,
           "medianPx": 1.0,
-          "p95Px": 1.0,
+          "p95Px": 1.4142135623730951,
           "maxPx": 1.4142135623730951
         }
       }
     },
     "side": {
       "targetActive": 9082,
-      "projectedActive": 8459,
-      "intersection": 8237,
-      "missing": 845,
-      "leakage": 222,
-      "recall": 0.9069588196432504,
-      "precision": 0.9737557630925642,
-      "iou": 0.8853181427343079,
-      "leakageRatio": 0.026244236907435867,
-      "missingRatio": 0.09304118035674962,
+      "projectedActive": 8536,
+      "intersection": 8319,
+      "missing": 763,
+      "leakage": 217,
+      "recall": 0.9159876679145562,
+      "precision": 0.9745782567947516,
+      "iou": 0.8946123239057964,
+      "leakageRatio": 0.02542174320524836,
+      "missingRatio": 0.08401233208544373,
       "density": {
-        "mean": 3.238934155472363,
+        "mean": 3.239594802906849,
         "median": 3.0,
         "p10": 1.0,
         "p90": 6.0,
-        "max": 13,
-        "emptyTargetRatio": 0.09304118035674962,
-        "overdrawRatio": 0.7199823225455534
+        "max": 15,
+        "emptyTargetRatio": 0.08401233208544373,
+        "overdrawRatio": 0.7172523961661342
       },
       "boundary": {
         "missingDistance": {
-          "meanPx": 1.0058823227792628,
+          "meanPx": 1.004567865497036,
           "medianPx": 1.0,
           "p95Px": 1.0,
-          "maxPx": 1.4142135623730951
+          "maxPx": 2.0
         },
         "leakageDistance": {
-          "meanPx": 1.053788853589884,
+          "meanPx": 1.0332405688276334,
           "medianPx": 1.0,
           "p95Px": 1.4142135623730951,
           "maxPx": 2.0
@@ -88,35 +88,35 @@
     },
     "top": {
       "targetActive": 25332,
-      "projectedActive": 16583,
-      "intersection": 16419,
-      "missing": 8913,
-      "leakage": 164,
-      "recall": 0.6481525343439128,
-      "precision": 0.9901103539769643,
-      "iou": 0.6439833699403829,
-      "leakageRatio": 0.00988964602303564,
-      "missingRatio": 0.35184746565608715,
+      "projectedActive": 16569,
+      "intersection": 16416,
+      "missing": 8916,
+      "leakage": 153,
+      "recall": 0.6480341070582663,
+      "precision": 0.9907658881042911,
+      "iou": 0.6441436138905239,
+      "leakageRatio": 0.009234111895708854,
+      "missingRatio": 0.35196589294173375,
       "density": {
-        "mean": 1.1744039159955788,
+        "mean": 1.17621980104216,
         "median": 1.0,
         "p10": 0.0,
         "p90": 3.0,
         "max": 8,
-        "emptyTargetRatio": 0.35184746565608715,
-        "overdrawRatio": 0.44810084033613445
+        "emptyTargetRatio": 0.35196589294173375,
+        "overdrawRatio": 0.4490535642368103
       },
       "boundary": {
         "missingDistance": {
-          "meanPx": 2.608764069674337,
+          "meanPx": 2.56014889434502,
           "medianPx": 1.0,
-          "p95Px": 14.142135623730951,
-          "maxPx": 27.80287754891569
+          "p95Px": 14.0,
+          "maxPx": 27.202941017470888
         },
         "leakageDistance": {
-          "meanPx": 1.0227312320814503,
+          "meanPx": 1.0162436691126704,
           "medianPx": 1.0,
-          "p95Px": 1.3520815280171286,
+          "p95Px": 1.0,
           "maxPx": 1.4142135623730951
         }
       }
@@ -124,29 +124,29 @@
   },
   "sdfValidity": {
     "hasSdfMax": true,
-    "positiveSdfCount": 454,
-    "positiveSdfRatio": 0.015133333333333334,
+    "positiveSdfCount": 462,
+    "positiveSdfRatio": 0.0154,
     "maxPositiveSdf": 0.0110489996150136,
-    "meanSdfMax": -0.05214554816484451
+    "meanSdfMax": -0.05183963105082512
   },
   "activeConstraintDistribution": {
     "front": {
-      "count": 411,
-      "ratio": 0.0137
+      "count": 427,
+      "ratio": 0.014233333333333334
     },
     "side": {
-      "count": 21872,
-      "ratio": 0.7290666666666666
+      "count": 21693,
+      "ratio": 0.7231
     },
     "top": {
-      "count": 7717,
-      "ratio": 0.2572333333333333
+      "count": 7880,
+      "ratio": 0.26266666666666666
     }
   },
   "summary": {
-    "minRecall": 0.4127818821176243,
-    "minPrecision": 0.9737557630925642,
-    "maxLeakageRatio": 0.026244236907435867,
-    "meanIoU": 0.6472369533250849
+    "minRecall": 0.4125560538116592,
+    "minPrecision": 0.9745782567947516,
+    "maxLeakageRatio": 0.02542174320524836,
+    "meanIoU": 0.6502512490013638
   }
 }

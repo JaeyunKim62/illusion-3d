@@ -1,8 +1,7 @@
 source ~/miniconda3/bin/activate
-conda create -y -n render python=3.12 pip
 conda activate render
 
-pip install -r requirements.txt
+# pip install -r requirements.txt
 
 FIRST_IMAGE=img/maple.png
 SECOND_IMAGE=img/airplane.png
