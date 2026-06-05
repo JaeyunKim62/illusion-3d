@@ -1,4 +1,5 @@
 source ~/miniconda3/bin/activate
+conda create -y -n render python=3.12 pip
 conda activate render
 
 pip install -r requirements.txt
@@ -18,6 +19,9 @@ python train_sdf.py \
   --n 30000 \
   --surface-ratio 0.45 \
   --device cuda \
+  --metrics-output data/training-metrics.jsonl \
+  --metrics-interval 500 \
+  --metrics-samples 30000 \
   --retrain \
   --output data/points.json
 

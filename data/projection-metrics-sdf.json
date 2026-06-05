@@ -1,5 +1,11 @@
 {
-  "schema": "sdf-projection-metrics/v1",
+  "schema": "sdf-projection-metrics/v2",
+  "references": {
+    "silhouetteMetrics": "IoU/precision/recall are standard binary mask overlap metrics used here as 2D supervision consistency.",
+    "sdfConstraint": "SDF validity follows the visual-hull condition max(f_front, f_side, f_top) <= 0.",
+    "boundaryDistance": "Boundary diagnostics use Euclidean distance transforms over binary masks.",
+    "standard3DWhenGroundTruthExists": "With 3D ground truth, add Chamfer Distance, F-score, Normal Consistency, and volumetric IoU."
+  },
   "pointCloud": {
     "points": 30000,
     "source": "data/points-sdf-annotated.json"
@@ -12,66 +18,135 @@
   "metrics": {
     "front": {
       "targetActive": 30997,
-      "projectedActive": 12793,
-      "intersection": 12763,
-      "missing": 18234,
-      "leakage": 30,
-      "recall": 0.41174952414749816,
-      "precision": 0.9976549675603846,
-      "iou": 0.41135140361620526,
-      "leakageRatio": 0.0023450324396154148,
-      "missingRatio": 0.5882504758525019
+      "projectedActive": 12823,
+      "intersection": 12795,
+      "missing": 18202,
+      "leakage": 28,
+      "recall": 0.4127818821176243,
+      "precision": 0.997816423613819,
+      "iou": 0.41240934730056406,
+      "leakageRatio": 0.002183576386181081,
+      "missingRatio": 0.5872181178823758,
+      "density": {
+        "mean": 0.9667064554634319,
+        "median": 0.0,
+        "p10": 0.0,
+        "p90": 3.0,
+        "max": 10,
+        "emptyTargetRatio": 0.5872181178823758,
+        "overdrawRatio": 0.5730018354747205
+      },
+      "boundary": {
+        "missingDistance": {
+          "meanPx": 16.75766962573872,
+          "medianPx": 11.0,
+          "p95Px": 54.3323108288245,
+          "maxPx": 79.51100552753688
+        },
+        "leakageDistance": {
+          "meanPx": 1.0147933415133248,
+          "medianPx": 1.0,
+          "p95Px": 1.0,
+          "maxPx": 1.4142135623730951
+        }
+      }
     },
     "side": {
       "targetActive": 9082,
-      "projectedActive": 8532,
-      "intersection": 8294,
-      "missing": 788,
-      "leakage": 238,
-      "recall": 0.9132349702708654,
-      "precision": 0.9721050164088139,
-      "iou": 0.8899141630901287,
-      "leakageRatio": 0.027894983591186123,
-      "missingRatio": 0.08676502972913455
+      "projectedActive": 8459,
+      "intersection": 8237,
+      "missing": 845,
+      "leakage": 222,
+      "recall": 0.9069588196432504,
+      "precision": 0.9737557630925642,
+      "iou": 0.8853181427343079,
+      "leakageRatio": 0.026244236907435867,
+      "missingRatio": 0.09304118035674962,
+      "density": {
+        "mean": 3.238934155472363,
+        "median": 3.0,
+        "p10": 1.0,
+        "p90": 6.0,
+        "max": 13,
+        "emptyTargetRatio": 0.09304118035674962,
+        "overdrawRatio": 0.7199823225455534
+      },
+      "boundary": {
+        "missingDistance": {
+          "meanPx": 1.0058823227792628,
+          "medianPx": 1.0,
+          "p95Px": 1.0,
+          "maxPx": 1.4142135623730951
+        },
+        "leakageDistance": {
+          "meanPx": 1.053788853589884,
+          "medianPx": 1.0,
+          "p95Px": 1.4142135623730951,
+          "maxPx": 2.0
+        }
+      }
     },
     "top": {
       "targetActive": 25332,
-      "projectedActive": 16709,
-      "intersection": 16556,
-      "missing": 8776,
-      "leakage": 153,
-      "recall": 0.6535607137217748,
-      "precision": 0.9908432581243641,
-      "iou": 0.6496370413969002,
-      "leakageRatio": 0.009156741875635884,
-      "missingRatio": 0.3464392862782252
+      "projectedActive": 16583,
+      "intersection": 16419,
+      "missing": 8913,
+      "leakage": 164,
+      "recall": 0.6481525343439128,
+      "precision": 0.9901103539769643,
+      "iou": 0.6439833699403829,
+      "leakageRatio": 0.00988964602303564,
+      "missingRatio": 0.35184746565608715,
+      "density": {
+        "mean": 1.1744039159955788,
+        "median": 1.0,
+        "p10": 0.0,
+        "p90": 3.0,
+        "max": 8,
+        "emptyTargetRatio": 0.35184746565608715,
+        "overdrawRatio": 0.44810084033613445
+      },
+      "boundary": {
+        "missingDistance": {
+          "meanPx": 2.608764069674337,
+          "medianPx": 1.0,
+          "p95Px": 14.142135623730951,
+          "maxPx": 27.80287754891569
+        },
+        "leakageDistance": {
+          "meanPx": 1.0227312320814503,
+          "medianPx": 1.0,
+          "p95Px": 1.3520815280171286,
+          "maxPx": 1.4142135623730951
+        }
+      }
     }
   },
   "sdfValidity": {
     "hasSdfMax": true,
-    "positiveSdfCount": 503,
-    "positiveSdfRatio": 0.016766666666666666,
+    "positiveSdfCount": 454,
+    "positiveSdfRatio": 0.015133333333333334,
     "maxPositiveSdf": 0.0110489996150136,
-    "meanSdfMax": -0.05192999914288521
+    "meanSdfMax": -0.05214554816484451
   },
   "activeConstraintDistribution": {
     "front": {
-      "count": 414,
-      "ratio": 0.0138
+      "count": 411,
+      "ratio": 0.0137
     },
     "side": {
-      "count": 21652,
-      "ratio": 0.7217333333333333
+      "count": 21872,
+      "ratio": 0.7290666666666666
     },
     "top": {
-      "count": 7934,
-      "ratio": 0.2644666666666667
+      "count": 7717,
+      "ratio": 0.2572333333333333
     }
   },
   "summary": {
-    "minRecall": 0.41174952414749816,
-    "minPrecision": 0.9721050164088139,
-    "maxLeakageRatio": 0.027894983591186123,
-    "meanIoU": 0.6503008693677447
+    "minRecall": 0.4127818821176243,
+    "minPrecision": 0.9737557630925642,
+    "maxLeakageRatio": 0.026244236907435867,
+    "meanIoU": 0.6472369533250849
   }
 }

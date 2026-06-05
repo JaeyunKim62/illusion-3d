@@ -20,6 +20,8 @@ import torch.nn as nn
 from PIL import Image
 from scipy.ndimage import distance_transform_edt, binary_fill_holes
 
+from eval.metrics import open_training_metrics_log, training_monitor_snapshot, write_training_metrics_step
+
 
 # ── SIREN architecture ─────────────────────────────────────────────────────────
 
@@ -107,6 +109,9 @@ def train_concurrent_sdfs(
     hidden: int = 128,
     n_layers: int = 3,
     eikonal_weight: float = 0.1,
+    metrics_output: str | None = None,
+    metrics_interval: int = 500,
+    metrics_samples: int = 30000,
 ) -> dict[str, SirenSDF]:
     """세 개의 SIREN 모델(front, side, top)을 루프 내에서 동시에 교대로 학습합니다."""
     
@@ -114,12 +119,14 @@ def train_concurrent_sdfs(
     optimizers = {}
     schedulers = {}
     sdf_tensors = {}
+    sdf_arrays = {}
     sizes = {}
 
     # 각 뷰어(View)별로 모델, 옵티마이저, 스케줄러, GT 데이터 초기화
     for name, mask in masks_dict.items():
         sizes[name] = mask.shape[0]
         sdf_gt = compute_sdf_gt(mask)
+        sdf_arrays[name] = sdf_gt
         sdf_tensors[name] = torch.from_numpy(sdf_gt).to(device)
 
         model = SirenSDF(hidden=hidden, n_layers=n_layers).to(device)
@@ -131,11 +138,23 @@ def train_concurrent_sdfs(
         schedulers[name] = sched
 
     t0 = time.time()
-    
+    metrics_fp = open_training_metrics_log(
+        metrics_output,
+        n_iters=n_iters,
+        batch_size=batch_size,
+        lr=lr,
+        hidden=hidden,
+        n_layers=n_layers,
+        eikonal_weight=eikonal_weight,
+        metrics_interval=metrics_interval,
+        metrics_samples=metrics_samples,
+    )
+
     # 하나의 메인 루프에서 'front -> side -> top'을 1스텝씩 반복 수행
     for step in range(1, n_iters + 1):
         log_str = f"  Step {step:>4}/{n_iters} "
-        print_log = (step % 500 == 0 or step == 1)
+        print_log = step % 500 == 0 or step == 1
+        step_losses = {}
 
         for name in masks_dict.keys():
             model = models[name]
@@ -168,6 +187,11 @@ def train_concurrent_sdfs(
             optim.step()
             sched.step()
 
+            step_losses[name] = {
+                "mse": float(mse.detach().cpu()),
+                "eikonal": float(eikonal.detach().cpu()),
+                "loss": float(loss.detach().cpu()),
+            }
             if print_log:
                 log_str += f" | [{name}] mse={mse.item():.4f} eik={eikonal.item():.3f}"
 
@@ -175,6 +199,31 @@ def train_concurrent_sdfs(
             elapsed = time.time() - t0
             cur_lr = schedulers["front"].get_last_lr()[0] # 대표로 front의 LR 출력
             print(f"{log_str} | lr={cur_lr:.1e} ({elapsed:.1f}s)")
+
+        if metrics_fp and (step == 1 or step % metrics_interval == 0 or step == n_iters):
+            snapshot = training_monitor_snapshot(
+                models, masks_dict, sdf_arrays, device, metrics_samples
+            )
+            write_training_metrics_step(
+                metrics_fp,
+                step=step,
+                elapsed_sec=time.time() - t0,
+                lr=schedulers["front"].get_last_lr()[0],
+                losses=step_losses,
+                monitor=snapshot,
+            )
+            r = snapshot["projection"]
+            print(
+                "  metrics "
+                f"minRecall={snapshot['summary']['minRecall']:.3f} "
+                f"meanIoU={snapshot['summary']['meanIoU']:.3f} "
+                f"outside={snapshot['sdfOutsideRatio']:.3f} "
+                f"recall F/S/T={r['front']['recall']:.3f}/"
+                f"{r['side']['recall']:.3f}/{r['top']['recall']:.3f}"
+            )
+
+    if metrics_fp:
+        metrics_fp.close()
 
     return models
 
@@ -346,6 +395,9 @@ def main():
     p.add_argument("--surface-ratio", type=float, default=0.4)
     p.add_argument("--device",  default=None)
     p.add_argument("--retrain", action="store_true", help="Force retrain even if learned_sdfs.pt exists")
+    p.add_argument("--metrics-output", default="data/training-metrics.jsonl")
+    p.add_argument("--metrics-interval", type=int, default=500)
+    p.add_argument("--metrics-samples", type=int, default=30000)
     p.add_argument("--output",  default="data/points.json")
     args = p.parse_args()
 
@@ -390,8 +442,11 @@ def main():
         
         # 교대 반복 학습 실행
         trained_models = train_concurrent_sdfs(
-            masks_dict, device, args.iters, 
-            hidden=args.hidden, n_layers=args.layers, lr=args.lr
+            masks_dict, device, args.iters,
+            hidden=args.hidden, n_layers=args.layers, lr=args.lr,
+            metrics_output=args.metrics_output,
+            metrics_interval=args.metrics_interval,
+            metrics_samples=args.metrics_samples,
         )
         
         model_f = trained_models["front"]
