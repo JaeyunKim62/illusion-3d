@@ -1,7 +1,7 @@
-# source ~/miniconda3/bin/activate
-# conda activate render
+source ~/miniconda3/bin/activate
+conda activate render
 
-# pip install -r requirements.txt
+pip install -r requirements.txt
 
 FIRST_IMAGE=img/maple.png
 SECOND_IMAGE=img/airplane.png
@@ -35,3 +35,5 @@ python evaluate_projection_metrics.py \
   --top ${THIRD_IMAGE} \
   --points data/points-sdf-annotated.json \
   --output data/projection-metrics-sdf.json
+
+python3 -m http.server 8000

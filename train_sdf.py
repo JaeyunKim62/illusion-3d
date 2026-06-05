@@ -3,12 +3,10 @@ Neural SDF: learn per-view SDFs with SIREN, sample from their intersection.
 
 Pipeline:
   1. Load silhouette images → ground-truth SDFs via EDT (supervision signal)
-  2. Train 3 SIREN networks:  f_front(x,y),  f_side(z,y),  f_top(x,z)
+  2. Train 3 SIREN networks concurrently: f_front(x,y), f_side(z,y), f_top(x,z)
+     (Iterating one step for each model sequentially in a single loop)
   3. Sample 3D points where   max(f_front, f_side, f_top) ≤ 0
   4. Output points.json for the Three.js viewer
-
-Usage:
-  python train_sdf.py --front img/bird.png --side img/airplane.png --top img/Tower.png
 """
 
 import argparse
@@ -98,11 +96,10 @@ def uv_to_pixel(uv: torch.Tensor, size: int):
     return row, col
 
 
-# ── Training ────────────────────────────────────────────────────────────────────
+# ── Concurrent Training ─────────────────────────────────────────────────────────
 
-def train_one_sdf(
-    name: str,
-    mask: np.ndarray,
+def train_concurrent_sdfs(
+    masks_dict: dict[str, np.ndarray],
     device: torch.device,
     n_iters: int = 2000,
     batch_size: int = 8192,
@@ -110,68 +107,87 @@ def train_one_sdf(
     hidden: int = 128,
     n_layers: int = 3,
     eikonal_weight: float = 0.1,
-) -> SirenSDF:
-    """Train a SIREN to regress the SDF of a 2D silhouette.
+) -> dict[str, SirenSDF]:
+    """세 개의 SIREN 모델(front, side, top)을 루프 내에서 동시에 교대로 학습합니다."""
+    
+    models = {}
+    optimizers = {}
+    schedulers = {}
+    sdf_tensors = {}
+    sizes = {}
 
-    Loss = boundary-weighted MSE  +  eikonal (|∇f| ≈ 1)
-    LR schedule: cosine annealing → 0
-    """
-    size = mask.shape[0]
-    sdf_gt = compute_sdf_gt(mask)
-    sdf_tensor = torch.from_numpy(sdf_gt).to(device)
+    # 각 뷰어(View)별로 모델, 옵티마이저, 스케줄러, GT 데이터 초기화
+    for name, mask in masks_dict.items():
+        sizes[name] = mask.shape[0]
+        sdf_gt = compute_sdf_gt(mask)
+        sdf_tensors[name] = torch.from_numpy(sdf_gt).to(device)
 
-    model = SirenSDF(hidden=hidden, n_layers=n_layers).to(device)
-    optim = torch.optim.Adam(model.parameters(), lr=lr)
-    sched = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=n_iters)
+        model = SirenSDF(hidden=hidden, n_layers=n_layers).to(device)
+        optim = torch.optim.Adam(model.parameters(), lr=lr)
+        sched = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=n_iters)
+        
+        models[name] = model
+        optimizers[name] = optim
+        schedulers[name] = sched
 
     t0 = time.time()
+    
+    # 하나의 메인 루프에서 'front -> side -> top'을 1스텝씩 반복 수행
     for step in range(1, n_iters + 1):
-        uv = torch.rand(batch_size, 2, device=device) * 2 - 1
-        row, col = uv_to_pixel(uv, size)
-        gt = sdf_tensor[row, col]
+        log_str = f"  Step {step:>4}/{n_iters} "
+        print_log = (step % 500 == 0 or step == 1)
 
-        pred = model(uv)
+        for name in masks_dict.keys():
+            model = models[name]
+            optim = optimizers[name]
+            sched = schedulers[name]
+            sdf_tensor = sdf_tensors[name]
+            size = sizes[name]
 
-        # Boundary-weighted MSE: higher weight near the surface (|SDF| ≈ 0)
-        weight = 1.0 + 8.0 * torch.exp(-10.0 * gt.abs())
-        mse = (weight * (pred - gt) ** 2).mean()
+            # 데이터 샘플링
+            uv = torch.rand(batch_size, 2, device=device) * 2 - 1
+            row, col = uv_to_pixel(uv, size)
+            gt = sdf_tensor[row, col]
 
-        # Eikonal: encourage |∇f| = 1 for a proper SDF
-        uv_g = uv.detach().clone().requires_grad_(True)
-        pred_g = model(uv_g)
-        grad = torch.autograd.grad(
-            pred_g.sum(), uv_g, create_graph=True,
-        )[0]
-        eikonal = ((grad.norm(dim=-1) - 1) ** 2).mean()
+            # 예측 및 Boundary-weighted MSE
+            pred = model(uv)
+            weight = 1.0 + 8.0 * torch.exp(-10.0 * gt.abs())
+            mse = (weight * (pred - gt) ** 2).mean()
 
-        loss = mse + eikonal_weight * eikonal
+            # Eikonal loss
+            uv_g = uv.detach().clone().requires_grad_(True)
+            pred_g = model(uv_g)
+            grad = torch.autograd.grad(pred_g.sum(), uv_g, create_graph=True)[0]
+            eikonal = ((grad.norm(dim=-1) - 1) ** 2).mean()
 
-        optim.zero_grad()
-        loss.backward()
-        optim.step()
-        sched.step()
+            loss = mse + eikonal_weight * eikonal
 
-        if step % 500 == 0 or step == 1:
+            # 역전파 및 최적화
+            optim.zero_grad()
+            loss.backward()
+            optim.step()
+            sched.step()
+
+            if print_log:
+                log_str += f" | [{name}] mse={mse.item():.4f} eik={eikonal.item():.3f}"
+
+        if print_log:
             elapsed = time.time() - t0
-            cur_lr = sched.get_last_lr()[0]
-            print(f"  [{name}] step {step:>4}/{n_iters}  "
-                  f"mse={mse.item():.6f}  eik={eikonal.item():.4f}  "
-                  f"lr={cur_lr:.1e}  ({elapsed:.1f}s)")
+            cur_lr = schedulers["front"].get_last_lr()[0] # 대표로 front의 LR 출력
+            print(f"{log_str} | lr={cur_lr:.1e} ({elapsed:.1f}s)")
 
-    return model
+    return models
 
 
 # ── Sampling ────────────────────────────────────────────────────────────────────
 
 def compute_bbox(masks: list[np.ndarray], pad: float = 0.05):
-    """Compute tight 3D bounding box from the silhouette masks.
-    Front mask constrains (x, y), side constrains (z, y), top constrains (x, z).
-    Returns (lo, hi) each of shape (3,) in [-1, 1] world coords."""
+    """Compute tight 3D bounding box from the silhouette masks."""
     mask_f, mask_s, mask_t = masks
     size = mask_f.shape[0]
 
     def axis_range(mask, axis):
-        proj = mask.any(axis=axis)          # collapse one axis
+        proj = mask.any(axis=axis)
         idx  = np.where(proj)[0]
         if len(idx) == 0:
             return -1.0, 1.0
@@ -179,17 +195,14 @@ def compute_bbox(masks: list[np.ndarray], pad: float = 0.05):
         hi = idx[-1] / (size - 1) * 2 - 1
         return lo - pad, hi + pad
 
-    # front mask (rows=y inverted, cols=x)
-    x_lo, x_hi = axis_range(mask_f, 0)             # collapse rows → x range
-    y_lo_f, y_hi_f = axis_range(mask_f, 1)          # collapse cols → y range (inverted)
-    y_lo_f, y_hi_f = -y_hi_f, -y_lo_f              # un-invert
+    x_lo, x_hi = axis_range(mask_f, 0)
+    y_lo_f, y_hi_f = axis_range(mask_f, 1)
+    y_lo_f, y_hi_f = -y_hi_f, -y_lo_f
 
-    # side mask (rows=y inverted, cols=z)
     z_lo, z_hi = axis_range(mask_s, 0)
     y_lo_s, y_hi_s = axis_range(mask_s, 1)
     y_lo_s, y_hi_s = -y_hi_s, -y_lo_s
 
-    # top mask (rows=z inverted, cols=x) — tighten x and z further
     x_lo2, x_hi2 = axis_range(mask_t, 0)
     z_lo2, z_hi2 = axis_range(mask_t, 1)
     z_lo2, z_hi2 = -z_hi2, -z_lo2
@@ -202,7 +215,6 @@ def compute_bbox(masks: list[np.ndarray], pad: float = 0.05):
 
 
 def _eval_sdf_batched(model_f, model_s, model_t, xyz, batch=50_000):
-    """Evaluate max(f_front, f_side, f_top) for a large set of xyz points."""
     x, y, z = xyz[:, 0], xyz[:, 1], xyz[:, 2]
     d_parts = []
     for i in range(0, len(x), batch):
@@ -216,12 +228,6 @@ def _eval_sdf_batched(model_f, model_s, model_t, xyz, batch=50_000):
 
 @torch.no_grad()
 def rejection_sample(models, masks, n_points, sharpness, surface_ratio, device):
-    """Collect 3D points inside the learned SDF intersection.
-
-    Two-stage strategy:
-      1. Evaluate SDFs on a coarse 3D grid → keep only occupied voxels (d <= margin).
-      2. Sample jittered proposals *within* those voxels → near-100% accept rate.
-    """
     model_f, model_s, model_t = models
     lo, hi = compute_bbox(masks)
     vol = np.prod(hi - lo)
@@ -229,7 +235,6 @@ def rejection_sample(models, masks, n_points, sharpness, surface_ratio, device):
           f"y[{lo[1]:.2f},{hi[1]:.2f}] z[{lo[2]:.2f},{hi[2]:.2f}]  "
           f"(vol={vol:.3f} vs 8.000)")
 
-    # ── Stage 1: coarse grid pre-filter ────────────────────────────────────────
     grid_res = 64
     xs = torch.linspace(float(lo[0]), float(hi[0]), grid_res, device=device)
     ys = torch.linspace(float(lo[1]), float(hi[1]), grid_res, device=device)
@@ -239,7 +244,6 @@ def rejection_sample(models, masks, n_points, sharpness, surface_ratio, device):
 
     d_grid = _eval_sdf_batched(model_f, model_s, model_t, grid_xyz)
 
-    # Use a small positive margin so surface points near d≈0 aren't missed
     surface_margin = (hi - lo).max() / grid_res * 1.5
     occ_mask = d_grid <= surface_margin
     occ_idx  = torch.where(occ_mask)[0]
@@ -250,10 +254,9 @@ def rejection_sample(models, masks, n_points, sharpness, surface_ratio, device):
     if len(occ_idx) == 0:
         raise RuntimeError("No occupied voxels found — check SDF training or input masks.")
 
-    occ_centers = grid_xyz[occ_idx].cpu().numpy()       # (K, 3)
-    vox_half = (hi - lo) / grid_res / 2.0               # half-voxel size per axis
+    occ_centers = grid_xyz[occ_idx].cpu().numpy()
+    vox_half = (hi - lo) / grid_res / 2.0
 
-    # ── Stage 2: jittered sampling inside occupied voxels ───────────────────────
     n_surface  = int(n_points * surface_ratio)
     n_interior = n_points - n_surface
     batch = 100_000
@@ -264,7 +267,6 @@ def rejection_sample(models, masks, n_points, sharpness, surface_ratio, device):
         n_got = 0
         total_sampled = 0
         while n_got < target:
-            # Draw random occupied voxels, then jitter uniformly within each
             vi  = np.random.randint(0, len(occ_centers), size=batch)
             jit = np.random.uniform(-1, 1, size=(batch, 3)) * vox_half
             xyz_np = occ_centers[vi] + jit
@@ -295,13 +297,7 @@ def rejection_sample(models, masks, n_points, sharpness, surface_ratio, device):
     return np.concatenate(all_pts, axis=0)
 
 
-def lookup_view_colors(
-    points_np: np.ndarray,
-    colors: list[np.ndarray],
-    size: int,
-):
-    """For each point, look up the color from each view image.
-    Returns (colorFront, colorSide, colorTop) each shape (N, 3) uint8."""
+def lookup_view_colors(points_np: np.ndarray, colors: list[np.ndarray], size: int):
     color_f, color_s, color_t = colors
     x = points_np[:, 0]
     y = points_np[:, 1]
@@ -312,16 +308,13 @@ def lookup_view_colors(
     col_z = np.clip(((z + 1) / 2 * (size - 1)).astype(int), 0, size - 1)
     row_z = np.clip(((1 - (z + 1) / 2) * (size - 1)).astype(int), 0, size - 1)
 
-    cf = color_f[row_y, col_x]  # (N, 3)
+    cf = color_f[row_y, col_x]
     cs = color_s[row_y, col_z]
     ct = color_t[row_z, col_x]
     return cf, cs, ct
 
 
-def sample_from_intersection(
-    models, colors, masks, size, n_points, sharpness, surface_ratio, device,
-):
-    """Full pipeline: rejection sample → look up per-view colors."""
+def sample_from_intersection(models, colors, masks, size, n_points, sharpness, surface_ratio, device):
     print("  Rejection sampling ...")
     points = rejection_sample(models, masks, n_points, sharpness, surface_ratio, device)
 
@@ -356,7 +349,6 @@ def main():
     p.add_argument("--output",  default="data/points.json")
     args = p.parse_args()
 
-    # Device
     if args.device:
         device = torch.device(args.device)
     elif torch.cuda.is_available():
@@ -367,7 +359,6 @@ def main():
         device = torch.device("cpu")
     print(f"Device: {device}")
 
-    # Load images
     print("Loading images ...")
     mask_f, color_f = load_mask_and_color(args.front, args.size)
     mask_s, color_s = load_mask_and_color(args.side,  args.size)
@@ -376,7 +367,6 @@ def main():
     print(f"  side  {args.side}:  {mask_s.sum()/mask_s.size*100:.1f}% coverage")
     print(f"  top   {args.top}:   {mask_t.sum()/mask_t.size*100:.1f}% coverage")
 
-    # Train or load SDFs
     ckpt_path = "learned_sdfs.pt"
 
     if os.path.exists(ckpt_path) and not args.retrain:
@@ -393,35 +383,29 @@ def main():
         print("  Loaded ✓")
     else:
         print(f"\n{'='*50}")
-        print(f"Training SIREN SDFs  (hidden={args.hidden}, layers={args.layers}, "
-              f"iters={args.iters})")
-        print(f"{'='*50}")
+        print(f"Training SIREN SDFs Concurrently (hidden={args.hidden}, layers={args.layers}, iters={args.iters})")
+        print(f"{'='*50}\n")
 
-        print(f"\n[1/3] Front SDF ...")
-        model_f = train_one_sdf("front", mask_f, device,
-                                args.iters, hidden=args.hidden,
-                                n_layers=args.layers, lr=args.lr)
+        masks_dict = {"front": mask_f, "side": mask_s, "top": mask_t}
+        
+        # 교대 반복 학습 실행
+        trained_models = train_concurrent_sdfs(
+            masks_dict, device, args.iters, 
+            hidden=args.hidden, n_layers=args.layers, lr=args.lr
+        )
+        
+        model_f = trained_models["front"]
+        model_s = trained_models["side"]
+        model_t = trained_models["top"]
 
-        print(f"\n[2/3] Side SDF ...")
-        model_s = train_one_sdf("side", mask_s, device,
-                                args.iters, hidden=args.hidden,
-                                n_layers=args.layers, lr=args.lr)
-
-        print(f"\n[3/3] Top SDF ...")
-        model_t = train_one_sdf("top", mask_t, device,
-                                args.iters, hidden=args.hidden,
-                                n_layers=args.layers, lr=args.lr)
-
-        # Save learned models
         torch.save({
             "front": model_f.state_dict(),
             "side":  model_s.state_dict(),
             "top":   model_t.state_dict(),
             "config": {"hidden": args.hidden, "layers": args.layers},
         }, ckpt_path)
-        print(f"Saved models → {ckpt_path}")
+        print(f"\nSaved models → {ckpt_path}")
 
-    # Sample from intersection
     print(f"\n{'='*50}")
     print(f"Sampling {args.n} points from learned SDF intersection ...")
     print(f"{'='*50}")
@@ -433,7 +417,6 @@ def main():
         args.size, args.n, args.sharpness, args.surface_ratio, device,
     )
 
-    # Save points
     with open(args.output, "w") as f:
         json.dump(data, f, separators=(",", ":"))
 
