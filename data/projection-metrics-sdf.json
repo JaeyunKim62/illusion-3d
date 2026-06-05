@@ -11,67 +11,67 @@
   },
   "metrics": {
     "front": {
-      "targetActive": 23528,
-      "projectedActive": 6487,
-      "intersection": 6407,
-      "missing": 17121,
-      "leakage": 80,
-      "recall": 0.27231383883032984,
-      "precision": 0.9876676429782643,
-      "iou": 0.27139105388004064,
-      "leakageRatio": 0.012332357021735778,
-      "missingRatio": 0.7276861611696702
+      "targetActive": 30997,
+      "projectedActive": 12793,
+      "intersection": 12763,
+      "missing": 18234,
+      "leakage": 30,
+      "recall": 0.41174952414749816,
+      "precision": 0.9976549675603846,
+      "iou": 0.41135140361620526,
+      "leakageRatio": 0.0023450324396154148,
+      "missingRatio": 0.5882504758525019
     },
     "side": {
-      "targetActive": 10558,
-      "projectedActive": 8699,
-      "intersection": 8469,
-      "missing": 2089,
-      "leakage": 230,
-      "recall": 0.8021405569236598,
-      "precision": 0.9735601793309576,
-      "iou": 0.7850389321468298,
-      "leakageRatio": 0.026439820669042418,
-      "missingRatio": 0.1978594430763402
+      "targetActive": 9082,
+      "projectedActive": 8532,
+      "intersection": 8294,
+      "missing": 788,
+      "leakage": 238,
+      "recall": 0.9132349702708654,
+      "precision": 0.9721050164088139,
+      "iou": 0.8899141630901287,
+      "leakageRatio": 0.027894983591186123,
+      "missingRatio": 0.08676502972913455
     },
     "top": {
-      "targetActive": 9425,
-      "projectedActive": 8621,
-      "intersection": 8366,
-      "missing": 1059,
-      "leakage": 255,
-      "recall": 0.8876392572944297,
-      "precision": 0.9704210648416657,
-      "iou": 0.8642561983471074,
-      "leakageRatio": 0.0295789351583343,
-      "missingRatio": 0.1123607427055703
+      "targetActive": 25332,
+      "projectedActive": 16709,
+      "intersection": 16556,
+      "missing": 8776,
+      "leakage": 153,
+      "recall": 0.6535607137217748,
+      "precision": 0.9908432581243641,
+      "iou": 0.6496370413969002,
+      "leakageRatio": 0.009156741875635884,
+      "missingRatio": 0.3464392862782252
     }
   },
   "sdfValidity": {
     "hasSdfMax": true,
-    "positiveSdfCount": 808,
-    "positiveSdfRatio": 0.026933333333333333,
-    "maxPositiveSdf": 0.015625,
-    "meanSdfMax": -0.03692615032196045
+    "positiveSdfCount": 503,
+    "positiveSdfRatio": 0.016766666666666666,
+    "maxPositiveSdf": 0.0110489996150136,
+    "meanSdfMax": -0.05192999914288521
   },
   "activeConstraintDistribution": {
     "front": {
-      "count": 2390,
-      "ratio": 0.07966666666666666
+      "count": 414,
+      "ratio": 0.0138
     },
     "side": {
-      "count": 12950,
-      "ratio": 0.43166666666666664
+      "count": 21652,
+      "ratio": 0.7217333333333333
     },
     "top": {
-      "count": 14660,
-      "ratio": 0.4886666666666667
+      "count": 7934,
+      "ratio": 0.2644666666666667
     }
   },
   "summary": {
-    "minRecall": 0.27231383883032984,
-    "minPrecision": 0.9704210648416657,
-    "maxLeakageRatio": 0.0295789351583343,
-    "meanIoU": 0.6402287281246593
+    "minRecall": 0.41174952414749816,
+    "minPrecision": 0.9721050164088139,
+    "maxLeakageRatio": 0.027894983591186123,
+    "meanIoU": 0.6503008693677447
   }
 }
