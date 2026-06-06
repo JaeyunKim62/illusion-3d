@@ -1,7 +1,7 @@
 source ~/miniconda3/bin/activate
 conda activate render
 
-# pip install -r requirements.txt
+pip install -r requirements.txt
 
 FIRST_IMAGE=img/bird.png
 SECOND_IMAGE=img/airplane.png
