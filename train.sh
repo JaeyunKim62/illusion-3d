@@ -3,15 +3,15 @@ conda activate render
 
 # pip install -r requirements.txt
 
-FIRST_IMAGE=img/maple.png
+FIRST_IMAGE=img/bird.png
 SECOND_IMAGE=img/airplane.png
-THIRD_IMAGE=img/bird.png
+THIRD_IMAGE=img/tower.png
 
 python train_sdf.py \
   --front ${FIRST_IMAGE} \
   --side ${SECOND_IMAGE} \
   --top ${THIRD_IMAGE} \
-  --iters 10000 \
+  --iters 5000 \
   --hidden 256 \
   --layers 5 \
   --lr 1e-4 \
